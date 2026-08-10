@@ -178,6 +178,63 @@ def test_list_filters_by_tag(client: TestClient, db: Session, fixtures_dir: Path
     assert body["items"][0]["id"] == txn.id
 
 
+def tag_transactions(db: Session, *pairs: tuple[str, int]) -> dict[str, Tag]:
+    """Create the named tags and pin each to the transaction at the given index."""
+    transactions = list(db.scalars(select(Transaction).order_by(Transaction.id)))
+    tags: dict[str, Tag] = {}
+    for name, index in pairs:
+        tag = tags.get(name)
+        if tag is None:
+            tag = Tag(name=name, color="#818cf8")
+            db.add(tag)
+            db.flush()
+            tags[name] = tag
+        db.add(TransactionTag(transaction_id=transactions[index].id, tag_id=tag.id))
+    db.flush()
+    return tags
+
+
+def test_list_filters_by_several_tags_with_or_semantics(
+    client: TestClient, db: Session, fixtures_dir: Path
+) -> None:
+    import_both(client, fixtures_dir)
+    tags = tag_transactions(db, ("Erstattungsfähig", 0), ("Wiederkehrend", 1))
+
+    response = client.get(
+        "/api/v1/transactions",
+        params={"tag_id": [tags["Erstattungsfähig"].id, tags["Wiederkehrend"].id]},
+    )
+
+    # A row carrying *either* tag qualifies — not only rows carrying both.
+    assert response.json()["total"] == 2
+
+
+def test_list_filters_untagged(client: TestClient, db: Session, fixtures_dir: Path) -> None:
+    import_both(client, fixtures_dir)
+    tag_transactions(db, ("Wiederkehrend", 0))
+
+    untagged = client.get("/api/v1/transactions", params={"untagged": "true"}).json()
+    tagged = client.get("/api/v1/transactions", params={"untagged": "false"}).json()
+
+    assert untagged["total"] == 15
+    assert tagged["total"] == 1
+    assert all(t["tags"] == [] for t in untagged["items"])
+
+
+def test_list_untagged_and_tag_id_together_match_nothing(
+    client: TestClient, db: Session, fixtures_dir: Path
+) -> None:
+    import_both(client, fixtures_dir)
+    tags = tag_transactions(db, ("Wiederkehrend", 0))
+
+    response = client.get(
+        "/api/v1/transactions",
+        params={"untagged": "true", "tag_id": tags["Wiederkehrend"].id},
+    )
+
+    assert response.json()["total"] == 0
+
+
 # --- PATCH /transactions/{id} -----------------------------------------------
 
 

@@ -331,6 +331,8 @@ Subcategory deletion follows the same shape: `subcategory_id = NULL` on affected
 - All endpoints under `/api/v1/`
 - JSON request/response bodies
 - Filtering via query parameters: `?category_id=3&tag_id=5&date_from=2024-01-01&date_to=2024-12-31&search=rewe`
+- `tag_id` is repeatable and ORs: `?tag_id=1&tag_id=2` returns rows carrying *either* tag. A single `tag_id` behaves as it always did.
+- `untagged` is the tag-side counterpart to `uncategorized`: `true` returns rows with no tags at all, `false` returns rows carrying at least one, unset does not filter. Passing it together with `tag_id` is contradictory and correctly returns nothing.
 - Pagination: `?page=1&page_size=50`
 - Standard error shape: `{ "detail": "message" }`
 - Amounts are strings in JSON, both directions. `min_amount` / `max_amount` query params parse as `Decimal`.

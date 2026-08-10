@@ -25,7 +25,7 @@ from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -69,7 +69,8 @@ def _row(transaction: Transaction) -> list[str]:
 def export_csv(
     category_id: int | None = None,
     subcategory_id: int | None = None,
-    tag_id: int | None = None,
+    tag_id: list[int] | None = Query(None),
+    untagged: bool | None = None,
     source: SourceFilter | None = None,
     date_from: date_type | None = None,
     date_to: date_type | None = None,
@@ -86,6 +87,7 @@ def export_csv(
         category_id=category_id,
         subcategory_id=subcategory_id,
         tag_id=tag_id,
+        untagged=untagged,
         source=source,
         date_from=date_from,
         date_to=date_to,

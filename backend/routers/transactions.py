@@ -36,7 +36,8 @@ def apply_transaction_filters(
     *,
     category_id: int | None,
     subcategory_id: int | None,
-    tag_id: int | None,
+    tag_id: list[int] | None,
+    untagged: bool | None,
     source: str | None,
     date_from: date_type | None,
     date_to: date_type | None,
@@ -50,8 +51,15 @@ def apply_transaction_filters(
         stmt = stmt.where(Transaction.category_id == category_id)
     if subcategory_id is not None:
         stmt = stmt.where(Transaction.subcategory_id == subcategory_id)
-    if tag_id is not None:
-        stmt = stmt.where(Transaction.tags.any(Tag.id == tag_id))
+    # Repeatable parameter, OR semantics: ?tag_id=1&tag_id=2 matches rows
+    # carrying either tag. A single ?tag_id=1 behaves exactly as before.
+    if tag_id:
+        stmt = stmt.where(Transaction.tags.any(Tag.id.in_(tag_id)))
+    # Mirrors `uncategorized`: True keeps rows with no tags at all, False keeps
+    # rows carrying at least one. Combining it with tag_id is contradictory and
+    # correctly yields nothing.
+    if untagged is not None:
+        stmt = stmt.where(~Transaction.tags.any() if untagged else Transaction.tags.any())
     if source is not None:
         stmt = stmt.where(Transaction.source == source)
     if date_from is not None:
@@ -79,7 +87,8 @@ def apply_transaction_filters(
 def list_transactions(
     category_id: int | None = None,
     subcategory_id: int | None = None,
-    tag_id: int | None = None,
+    tag_id: list[int] | None = Query(None),
+    untagged: bool | None = None,
     source: SourceFilter | None = None,
     date_from: date_type | None = None,
     date_to: date_type | None = None,
@@ -98,6 +107,7 @@ def list_transactions(
         category_id=category_id,
         subcategory_id=subcategory_id,
         tag_id=tag_id,
+        untagged=untagged,
         source=source,
         date_from=date_from,
         date_to=date_to,

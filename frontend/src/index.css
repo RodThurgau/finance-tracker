@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+
+/* Dark theme is the only theme (a toggle is Phase 5), so the palette is defined
+   once here rather than behind a `dark:` variant. Every token below becomes a
+   Tailwind utility: `--color-surface` → `bg-surface`, `text-surface`, etc. */
+@theme {
+  --color-surface: #0f1115;
+  --color-surface-raised: #171a21;
+  --color-surface-hover: #1f232c;
+  --color-line: #2a2f3a;
+
+  --color-content: #e6e8ec;
+  --color-content-muted: #9aa1ad;
+
+  --color-accent: #4f8cff;
+  --color-accent-soft: #1d2b45;
+
+  --color-positive: #34d399;
+  --color-negative: #f87171;
+
+  --font-sans: ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-surface text-content font-sans antialiased;
+}
+
+/* Amounts and dates line up in tables when digits are fixed-width. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

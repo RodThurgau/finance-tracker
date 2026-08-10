@@ -129,6 +129,26 @@ def test_export_multiple_tags_are_semicolon_joined(client: TestClient, db: Sessi
     assert rows[0]["tags"] == "Gemeinsame Ausgabe;Erstattungsfaehig"
 
 
+def test_export_filters_by_several_tags_and_by_untagged(client: TestClient, db: Session) -> None:
+    """The tag filters reach the export too — it reuses the same filter builder."""
+    a = Tag(name="Gemeinsame Ausgabe", color="#22d3ee")
+    b = Tag(name="Wiederkehrend", color="#818cf8")
+    db.add_all([a, b])
+    db.flush()
+    first = make_transaction(db, amount="-10.00", when=date(2026, 1, 1), composite_hash="a")
+    second = make_transaction(db, amount="-20.00", when=date(2026, 1, 2), composite_hash="b")
+    make_transaction(db, amount="-30.00", when=date(2026, 1, 3), composite_hash="c")
+    db.add(TransactionTag(transaction_id=first.id, tag_id=a.id))
+    db.add(TransactionTag(transaction_id=second.id, tag_id=b.id))
+    db.flush()
+
+    either = parse_csv(client.get("/api/v1/export/csv", params={"tag_id": [a.id, b.id]}))
+    untagged = parse_csv(client.get("/api/v1/export/csv", params={"untagged": "true"}))
+
+    assert {row["amount"] for row in either} == {"-10.00", "-20.00"}
+    assert [row["amount"] for row in untagged] == ["-30.00"]
+
+
 def test_export_blank_fields_for_uncategorized_untagged_row(client: TestClient, db: Session) -> None:
     make_transaction(db, amount="-10.00", when=date(2026, 1, 1), composite_hash="a")
 
