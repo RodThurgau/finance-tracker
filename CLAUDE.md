@@ -341,6 +341,7 @@ Subcategory deletion follows the same shape: `subcategory_id = NULL` on affected
 ## Key endpoints
 
 ```
+POST   /api/v1/import/preview          Preclean + detect + parse only — no DB write; source, discarded preamble, first 5 rows, row errors
 POST   /api/v1/import/csv              Upload + upsert CSV
 GET    /api/v1/transactions             List (filtered, paginated, sorted)
 PATCH  /api/v1/transactions/{id}        Update category, subcategory, exclude_from_stats

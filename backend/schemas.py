@@ -213,6 +213,25 @@ class RowErrorSchema(BaseModel):
     message: str
 
 
+class ImportPreviewRow(AmountModel):
+    """One parsed row shown before the user commits to importing."""
+
+    date: date_type
+    description: str
+    amount: Decimal
+    currency: str
+    counter_account: str | None = None
+    transaction_type: str | None = None
+
+
+class ImportPreviewSchema(BaseModel):
+    source: str
+    preamble_lines: list[str]
+    rows: list[ImportPreviewRow]
+    total_rows: int
+    errors: list[RowErrorSchema]
+
+
 class SkippedRowSchema(AmountModel):
     row_number: int
     composite_hash: str
