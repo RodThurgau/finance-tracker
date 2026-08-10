@@ -24,6 +24,7 @@ finance-tracker/
 │   ├── money.py                 # DecimalAmount TypeDecorator
 │   ├── schemas.py               # Pydantic request/response schemas
 │   ├── backup.py                # Pre-migration DB snapshot
+│   ├── seed.py                  # Default categories/tags for an empty database
 │   ├── routers/
 │   │   ├── transactions.py      # CRUD, filtering, bulk update
 │   │   ├── categories.py        # Category + subcategory management
@@ -174,7 +175,8 @@ Composite PK on (transaction_id, tag_id).
 
 Alembic owns the schema. Tables are **not** created with `Base.metadata.create_all()` in application code.
 
-- On startup: take a backup (below), then run `alembic upgrade head` programmatically. A fresh database gets built from migration `0001` like any other.
+- On startup: take a backup (below), then run `alembic upgrade head` programmatically, then seed (below). A fresh database gets built from migration `0001` like any other.
+- The programmatic run sets `config.attributes["configure_logger"] = False`, and `env.py` honors it. Otherwise Alembic's `fileConfig()` would reset the root logger to WARNING and disable every logger the app had already created. The Alembic CLI still configures logging normally.
 - Every model change ships with a migration in the same commit. Autogenerate is a starting point, not the answer — review the generated file, especially for SQLite's limited `ALTER TABLE` (Alembic's batch mode is required for column drops, type changes, and constraint changes).
 - Never edit a migration that has already been applied to `data/finance.db`. Write a new one.
 
@@ -187,6 +189,12 @@ The CSVs are re-downloadable; months of manual categorization are not.
 - Retention: keep the most recent 20 snapshots plus the first snapshot of each day for the last 30 days. Prune the rest.
 - Startup aborts loudly if the backup fails. Do not migrate an unbacked database.
 - Restore is a documented manual step in README: stop the server, copy a snapshot over `data/finance.db`, restart.
+
+## Seed data
+
+`seed.py` runs in the lifespan handler after migrations and writes the default German categories, subcategories, and tags — but only when the database holds no categories and no tags. On every later startup it is a no-op.
+
+The check is deliberately coarse: deleting every category and tag is the documented way to reset the defaults, and they come back on the next start. The seeded rows are an opening position, not fixtures the app depends on — they are renameable and deletable like any other, so **nothing in the codebase may look a category or tag up by name or id.**
 
 ## CSV preclean
 

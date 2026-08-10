@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -7,12 +8,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backup import BackupError, run_backup
+from database import SessionLocal
+from seed import seed_database
 
 BACKEND_DIR = Path(__file__).resolve().parent
+log = logging.getLogger(__name__)
 
 
 def run_migrations() -> None:
+    """Bring the database up to head. Alembic owns the schema, so this is the
+    only place tables come into existence."""
     alembic_cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    # Leave the host's logging alone; see the note in alembic/env.py.
+    alembic_cfg.attributes["configure_logger"] = False
+    logging.getLogger("alembic").setLevel(logging.INFO)
     command.upgrade(alembic_cfg, "head")
 
 
@@ -25,7 +34,15 @@ async def lifespan(app: FastAPI):
 
     run_migrations()
 
-    # TODO(1.4): seed default categories/tags on an empty database
+    with SessionLocal() as session:
+        result = seed_database(session)
+    if not result.skipped:
+        log.info(
+            "Seeded %d categories, %d subcategories, %d tags",
+            result.categories,
+            result.subcategories,
+            result.tags,
+        )
 
     yield
 
