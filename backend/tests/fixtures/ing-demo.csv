@@ -1,0 +1,15 @@
+Umsatzanzeige;Datei erstellt am: 06.08.2026 22:39
+
+IBAN;DE29 5001 0517 1234 5678 90
+Kontoname;Girokonto
+Bank;ING
+Kunde;John Doe
+Zeitraum;01.07.2026 - 31.07.2026
+
+Sortierung;Datum absteigend
+
+In der CSV-Datei finden Sie alle bereits gebuchten Umsätze. Die vorgemerkten Umsätze werden nicht aufgenommen, auch wenn sie in Ihrem Internetbanking angezeigt werden.
+
+Buchung;Wertstellungsdatum;Auftraggeber/Empfänger;Buchungstext;Verwendungszweck;Betrag;Währung
+31.07.2026;31.07.2026;VISA BUDNIKOWSKY;Lastschrift;NR XXXX 1234 CITYNAME DE KAUFUMSATZ 29.07 15.26 172651 ARN74396046210900007608505 Apple Pay;-15,26;EUR
+31.07.2026;31.07.2026;VISA REWE CITYNAME;Lastschrift;NR XXXX 1234 CITYNAME DE KAUFUMSATZ 29.07 3.99 200901 ARN74830726210310240442269 Apple Pay;-3,99;EUR

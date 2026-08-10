@@ -363,6 +363,7 @@ GET    /api/v1/stats/summary            Aggregated spending data for charts
 - Recharts for visualizations.
 - No browser-side storage — all state lives in the backend.
 - Amounts arrive as strings. Format for display; never do arithmetic on them client-side.
+- **UI language: German.** All labels, navigation, buttons, form fields, toasts, empty states, and confirmation copy are in German. Dates display as `YYYY.MM.DD` (sorts correctly as plain text; use `Intl.DateTimeFormat('sv-SE')` or a manual `date.toISOString().slice(0, 10).replaceAll('-', '.')`-style formatter — not `de-DE`, which gives `DD.MM.YYYY`); amounts via `Intl.NumberFormat('de-DE')` (already required above). Default seed categories/tags are German (see 1.4 in PLAN.md) — component copy should match that register. Code itself (variable names, comments, commit messages) stays English; this applies to user-facing strings only.
 
 ## Development
 
