@@ -224,3 +224,6 @@ __marimo__/
 
 # Plan
 PLAN.md
+
+# Claude Code local settings (personal, machine-specific)
+.claude/settings.local.json
