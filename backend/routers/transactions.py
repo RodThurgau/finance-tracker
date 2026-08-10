@@ -21,14 +21,17 @@ SortBy = Literal["date", "amount", "description"]
 SortDir = Literal["asc", "desc"]
 SourceFilter = Literal["ING", "PayPal"]
 
-_SORT_COLUMNS = {
+# Public (no leading underscore): reused as-is by routers/export.py so
+# GET /export/csv can accept "the same filters as transaction list" without
+# duplicating — and risking drifting from — this logic.
+SORT_COLUMNS = {
     "date": Transaction.date,
     "amount": Transaction.amount,
     "description": Transaction.description,
 }
 
 
-def _apply_filters(
+def apply_transaction_filters(
     stmt: Select,
     *,
     category_id: int | None,
@@ -105,12 +108,15 @@ def list_transactions(
         excluded=excluded,
     )
 
-    total = db.scalar(_apply_filters(select(func.count()).select_from(Transaction), **filters)) or 0
+    total = (
+        db.scalar(apply_transaction_filters(select(func.count()).select_from(Transaction), **filters))
+        or 0
+    )
 
-    column = _SORT_COLUMNS[sort_by]
+    column = SORT_COLUMNS[sort_by]
     order = column.asc() if sort_dir == "asc" else column.desc()
 
-    stmt = _apply_filters(select(Transaction), **filters)
+    stmt = apply_transaction_filters(select(Transaction), **filters)
     stmt = (
         stmt.options(selectinload(Transaction.tags))
         .order_by(order, Transaction.id.asc())

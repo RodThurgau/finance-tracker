@@ -3,6 +3,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 
+from services.categorizer import RuleField
+
 
 class AmountModel(BaseModel):
     """Base for schemas carrying a Decimal amount, serialized as a string."""
@@ -38,11 +40,20 @@ class CategoryCreate(CategoryBase):
     pass
 
 
+class CategoryUpdate(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
 class Category(CategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     subcategories: list[Subcategory] = []
+
+
+class CategoryWithCount(Category):
+    transaction_count: int
 
 
 class TagBase(BaseModel):
@@ -118,7 +129,7 @@ class BulkUpdateResult(BaseModel):
 
 class CategoryRuleBase(BaseModel):
     keyword: str
-    field: str = "description"
+    field: RuleField = RuleField.DESCRIPTION
     category_id: int
     subcategory_id: int | None = None
     priority: int = 0
@@ -128,10 +139,69 @@ class CategoryRuleCreate(CategoryRuleBase):
     pass
 
 
+class CategoryRuleUpdate(BaseModel):
+    keyword: str | None = None
+    field: RuleField | None = None
+    category_id: int | None = None
+    subcategory_id: int | None = None
+    priority: int | None = None
+
+
 class CategoryRule(CategoryRuleBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class CategoryRuleWithNames(CategoryRule):
+    category_name: str
+    subcategory_name: str | None = None
+
+
+class RulesApplyResult(BaseModel):
+    categorized: int
+
+
+class CategorySpendEntry(BaseModel):
+    category_id: int | None
+    category_name: str | None
+    total: Decimal
+
+    @field_serializer("total")
+    def serialize_total(self, value: Decimal) -> str:
+        return str(value)
+
+
+class MonthlySummaryEntry(BaseModel):
+    month: str
+    income: Decimal
+    expenses: Decimal
+
+    @field_serializer("income", "expenses")
+    def serialize_amounts(self, value: Decimal) -> str:
+        return str(value)
+
+
+class MerchantSpendEntry(BaseModel):
+    counter_account: str
+    total: Decimal
+
+    @field_serializer("total")
+    def serialize_total(self, value: Decimal) -> str:
+        return str(value)
+
+
+class StatsSummary(BaseModel):
+    total_income: Decimal
+    total_expenses: Decimal
+    net: Decimal
+    by_category: list[CategorySpendEntry]
+    by_month: list[MonthlySummaryEntry]
+    top_merchants: list[MerchantSpendEntry]
+
+    @field_serializer("total_income", "total_expenses", "net")
+    def serialize_totals(self, value: Decimal) -> str:
+        return str(value)
 
 
 class RowErrorSchema(BaseModel):

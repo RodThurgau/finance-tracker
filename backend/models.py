@@ -90,3 +90,6 @@ class CategoryRule(Base):
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
     subcategory_id: Mapped[int | None] = mapped_column(ForeignKey("subcategories.id"), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    category: Mapped["Category"] = relationship()
+    subcategory: Mapped["Subcategory | None"] = relationship()
