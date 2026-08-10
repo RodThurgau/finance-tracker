@@ -60,6 +60,14 @@ class Tag(TagBase):
     id: int
 
 
+class TagWithCount(Tag):
+    usage_count: int
+
+
+class TagLink(BaseModel):
+    tag_id: int
+
+
 class TransactionBase(BaseModel):
     source: str
     transaction_id: str | None = None
@@ -90,6 +98,22 @@ class TransactionUpdate(BaseModel):
 class Transaction(TransactionBase, AmountModel):
     id: int
     tags: list[Tag] = []
+
+
+class TransactionListResponse(BaseModel):
+    items: list[Transaction]
+    total: int
+
+
+class TransactionBulkUpdate(BaseModel):
+    ids: list[int]
+    category_id: int | None = None
+    subcategory_id: int | None = None
+    exclude_from_stats: bool | None = None
+
+
+class BulkUpdateResult(BaseModel):
+    updated: int
 
 
 class CategoryRuleBase(BaseModel):

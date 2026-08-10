@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backup import BackupError, run_backup
 from database import SessionLocal
-from routers import imports
+from routers import imports, tags, transactions
 from seed import seed_database
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -59,6 +59,8 @@ app.add_middleware(
 )
 
 app.include_router(imports.router)
+app.include_router(transactions.router)
+app.include_router(tags.router)
 
 
 @app.get("/api/v1/health")
