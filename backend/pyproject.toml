@@ -16,3 +16,9 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Backend modules import each other flat (``from database import Base``), and
+# tests/ holds make_fixtures.py, which conftest imports.
+pythonpath = [".", "tests"]

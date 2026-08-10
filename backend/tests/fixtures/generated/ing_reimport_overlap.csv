@@ -1,0 +1,22 @@
+Umsatzanzeige;Datei erstellt am: 06.08.2026 22:39
+
+IBAN;DE29 5001 0517 1234 5678 90
+Kontoname;Girokonto
+Bank;ING
+Kunde;John Doe
+Zeitraum;01.07.2026 - 31.07.2026
+
+Sortierung;Datum absteigend
+
+In der CSV-Datei finden Sie alle bereits gebuchten Umsätze. Die vorgemerkten Umsätze werden nicht aufgenommen, auch wenn sie in Ihrem Internetbanking angezeigt werden.
+
+Buchung;Wertstellungsdatum;Auftraggeber/Empfänger;Buchungstext;Verwendungszweck;Betrag;Währung
+05.08.2026;05.08.2026;VISA DM DROGERIEMARKT;Lastschrift;NR XXXX 1234 CITYNAME DE KAUFUMSATZ 03.08 24.10 172651 ARN74396046210900007608612 Apple Pay;-24,10;EUR
+04.08.2026;04.08.2026;Deutsche Bahn AG;Kartenzahlung;Fahrkarte Hamburg - München, Buchungsnummer XZ4711;-129,90;EUR
+31.07.2026;31.07.2026;VISA BUDNIKOWSKY;Lastschrift;NR XXXX 1234 CITYNAME DE KAUFUMSATZ 29.07 15.26 172651 ARN74396046210900007608505 Apple Pay;-15,26;EUR
+31.07.2026;31.07.2026;VISA REWE CITYNAME;Lastschrift;NR XXXX 1234 CITYNAME DE KAUFUMSATZ 29.07 3.99 200901 ARN74830726210310240442269 Apple Pay;-3,99;EUR
+30.07.2026;30.07.2026;Möbelhaus Küchenblock GmbH;Überweisung;Rechnung 2026-07-3391 Küchenzeile inklusive Lieferung und Montage, Anzahlung 1 von 2, Kundennummer 88213, Bestellung vom 12.06.2026;-1.234,56;EUR
+28.07.2026;28.07.2026;Städtische Werke München AG;Lastschrift;Abschlag Strom 07/2026 Vertragskonto 4711;-89,00;EUR
+15.07.2026;15.07.2026;PayPal Europe S.a.r.l. et Cie S.C.A.;Lastschrift;PP.4711.PP . SPOTIFY, Ihr Einkauf bei SPOTIFY;-10,99;EUR
+03.07.2026;03.07.2026;AMAZON EU S.A R.L.;Gutschrift;Rückerstattung Bestellung 302-1234567-8901234;19,99;EUR
+01.07.2026;01.07.2026;Mustermann GmbH & Co. KG;Gehalt/Rente;Lohn/Gehalt 07/2026 Personalnummer 004711;2.450,00;EUR

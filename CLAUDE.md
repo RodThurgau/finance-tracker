@@ -45,8 +45,8 @@ finance-tracker/
 │   ├── alembic.ini
 │   ├── tests/
 │   │   ├── fixtures/            # Synthetic CSVs only — never real exports
-│   │   │   ├── ing_demo.csv     # ← drop the hand-written demo file here
-│   │   │   ├── paypal_demo.csv  # ← drop the hand-written demo file here
+│   │   │   ├── ing_demo.csv     # ← drop the hand-written demo file here (Latin-1, as ING ships it)
+│   │   │   ├── paypal_demo.CSV  # ← drop the hand-written demo file here (UTF-8 + BOM, German export)
 │   │   │   └── generated/       # Variants produced by make_fixtures.py
 │   │   ├── make_fixtures.py     # Derives variants from the two demo files
 │   │   ├── test_preclean.py
@@ -127,8 +127,8 @@ Six tables. All IDs are integers with autoincrement. Schema changes go through A
 | original_description | TEXT | Raw description field from CSV              |
 | amount           | DECIMAL | Decimal(12,2) in Python, INTEGER cents in SQLite. Signed: negative = expense |
 | currency         | TEXT    | Default "EUR"                                |
-| counter_account  | TEXT    | Nullable. ING `Auftraggeber/Empfänger` / PayPal email |
-| transaction_type | TEXT    | ING `Buchungstext` (e.g. "Lastschrift", "Kartenzahlung") / "PayPal" |
+| counter_account  | TEXT    | Nullable. ING `Auftraggeber/Empfänger` / PayPal `Absender E-Mail-Adresse` |
+| transaction_type | TEXT    | ING `Buchungstext` (e.g. "Lastschrift", "Kartenzahlung") / PayPal `Beschreibung` (e.g. "Handyzahlung") |
 | category_id      | INTEGER | FK → categories.id. Nullable                 |
 | subcategory_id   | INTEGER | FK → subcategories.id. Nullable              |
 | user_categorized | BOOLEAN | True if user manually set category           |
@@ -251,29 +251,34 @@ Tradeoff: two transactions with the same booking date, same purpose text, and sa
 
 ### PayPal
 
-Comma-separated, UTF-8. Preclean still runs (BOM, header location). Key columns:
+**German-locale export only.** The account language decides the column names, and this app targets the German export — the one in `tests/fixtures/paypal_demo.CSV`. An English export has different column names and will fail detection rather than mis-import. If the account language ever changes, that is a spec change here, not a parser guess.
+
+Comma-separated, UTF-8 **with BOM**, every field quoted, header on line 1 (no preamble). Preclean still runs — it strips the BOM and locates the header. Columns, in export order:
 
 ```
-"Date","Time","TimeZone","Name","Type","Status","Currency","Gross","Fee","Net","From Email Address","To Email Address","Transaction ID",...
+"Datum","Uhrzeit","Zeitzone","Beschreibung","Währung","Brutto","Entgelt","Netto","Guthaben","Transaktionscode","Absender E-Mail-Adresse","Name","Name der Bank","Bankkonto","Versand- und Bearbeitungsgebühr","Umsatzsteuer","Rechnungsnummer","Zugehöriger Transaktionscode"
 ```
 
 **Column types and mapping.** Same rule: read as string, convert explicitly.
 
 | CSV column | Raw form | Parsed as | Target |
 |------------|----------|-----------|--------|
-| `Date` | `DD/MM/YYYY` or `MM/DD/YYYY` | `date` | `transactions.date` |
-| `Time`, `TimeZone` | text | — | ignored |
+| `Datum` | `DD.MM.YYYY` | `date` | `transactions.date` |
+| `Uhrzeit`, `Zeitzone` | text | — | ignored |
+| `Beschreibung` | text | `str` | `transaction_type` (e.g. "Handyzahlung", "PayPal Express-Zahlung") |
 | `Name` | text | `str` | `description` / `original_description` |
-| `Type` | text | `str` | `transaction_type` |
-| `Status` | text | `str` | filter only — keep `Completed` |
-| `Currency` | `EUR` | `str` | `currency` |
-| `Gross` | `-12.50` | `Decimal` | `amount` |
-| `From Email Address` / `To Email Address` | text | `str` | `counter_account` |
-| `Transaction ID` | text | `str` | `transaction_id` |
+| `Währung` | `EUR` | `str` | `currency` |
+| `Brutto` | `-9,90` | `Decimal` | `amount` |
+| `Entgelt`, `Netto`, `Guthaben` | `-9,90` | — | ignored — `Guthaben` is a running balance, not a transaction |
+| `Absender E-Mail-Adresse` | text | `str` | `counter_account` |
+| `Transaktionscode` | text | `str` | `transaction_id` |
+| `Name der Bank`, `Bankkonto`, `Versand- und Bearbeitungsgebühr`, `Umsatzsteuer`, `Rechnungsnummer`, `Zugehöriger Transaktionscode` | text | — | ignored |
 
-- `Gross` is already signed and uses `.` as decimal separator. Convert the string directly with `Decimal`.
-- Date order is detected from context (any day value > 12 in the file settles it).
-- Rows not `Status == "Completed"` are dropped before upsert and counted in the summary.
+- `Brutto` is already signed and uses German notation — `.` thousands, `,` decimal, same as ING's `Betrag`. Normalize the **string** the same way and pass it to `Decimal`. Never `float`.
+- `Datum` is `DD.MM.YYYY` and unambiguous. There is no date-order detection — parse it strictly and report a row-level error if it fails.
+- **There is no `Status` column.** Everything in the export is already booked, so there is no status filter and no dropped-row count for it.
+- `Name` is empty on PayPal's own bookkeeping rows (bank credits, authorization holds). Those rows still import; `description` falls back to `Beschreibung` when `Name` is blank.
+- Every card/express purchase is normally followed by a `Bankgutschrift auf PayPal-Konto` row of the opposite sign that funds it, linked by `Zugehöriger Transaktionscode`. **The importer does not touch these** — no netting, no auto-exclusion. They are ordinary rows, and the user flags them with `exclude_from_stats` if they distort totals.
 
 ## Upsert logic
 

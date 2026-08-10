@@ -1,0 +1,4 @@
+Dies ist keine CSV-Datei.
+Es gibt keine Kopfzeile und keine Spaltennamen.
+
+Nur ein bisschen Text, damit der Import fehlschlagen kann.
