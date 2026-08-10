@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Finance Tracker: local data, never committed
+/data/
+/backups/
+/imports/
+
+# Plan
+PLAN.md
