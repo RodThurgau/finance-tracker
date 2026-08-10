@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backup import BackupError, run_backup
 from database import SessionLocal
+from routers import imports
 from seed import seed_database
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -56,6 +57,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(imports.router)
 
 
 @app.get("/api/v1/health")

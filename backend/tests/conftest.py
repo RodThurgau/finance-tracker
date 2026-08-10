@@ -70,3 +70,18 @@ def fixtures_dir() -> Path:
 def generated_dir(generated_fixtures: None) -> Path:
     """Directory holding the fixtures derived from the demo CSVs."""
     return GENERATED_DIR
+
+
+@pytest.fixture
+def client(db: Session):
+    """A TestClient whose requests run against the rolled-back `db` session."""
+    from fastapi.testclient import TestClient
+
+    from database import get_db
+    from main import app
+
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)

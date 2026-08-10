@@ -108,3 +108,32 @@ class CategoryRule(CategoryRuleBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class RowErrorSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    row_number: int
+    column: str
+    value: str
+    message: str
+
+
+class SkippedRowSchema(AmountModel):
+    row_number: int
+    composite_hash: str
+    date: date_type
+    description: str
+    amount: Decimal
+
+
+class ImportSummarySchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    source: str
+    new: int
+    updated: int
+    skipped: int
+    errors: list[RowErrorSchema]
+    date_range: tuple[date_type, date_type] | None
+    skipped_rows: list[SkippedRowSchema]
