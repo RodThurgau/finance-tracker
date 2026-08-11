@@ -4,6 +4,24 @@ A local-first personal finance tracker that ingests ING (DE) and PayPal CSV expo
 
 See [CLAUDE.md](CLAUDE.md) for full architecture and conventions.
 
+## Starting the app (e.g. after a reboot)
+
+Nothing runs automatically — after a PC restart, both servers need to be started manually. Open two terminals:
+
+```powershell
+# Terminal 1 — backend (also runs the DB backup + migrations on startup)
+cd backend
+uv run uvicorn main:app --reload --port 8000
+
+# Terminal 2 — frontend
+cd frontend
+npm run dev
+```
+
+Then open the site in your browser: **http://localhost:5173**
+
+Leave both terminals running while you use the app; closing either one stops that half of the app. To stop, press `Ctrl+C` in each terminal.
+
 ## Development
 
 ```bash

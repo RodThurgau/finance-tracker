@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Tag, Transaction, TransactionTag
 from schemas import Tag as TagSchema
-from schemas import TagCreate, TagLink, TagWithCount
+from schemas import TagCreate, TagLink, TagUpdate, TagWithCount
 from schemas import Transaction as TransactionSchema
 
 router = APIRouter(prefix="/api/v1", tags=["tags"])
@@ -40,6 +40,29 @@ def list_tags(db: Session = Depends(get_db)) -> list[TagWithCount]:
 def create_tag(data: TagCreate, db: Session = Depends(get_db)) -> Tag:
     tag = Tag(name=data.name, color=data.color)
     db.add(tag)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Tag '{data.name}' already exists") from exc
+    db.refresh(tag)
+    return tag
+
+
+@router.patch("/tags/{tag_id}", response_model=TagSchema)
+def update_tag(tag_id: int, data: TagUpdate, db: Session = Depends(get_db)) -> Tag:
+    """Rename and/or recolor a tag. Assignments in `transaction_tags` are keyed
+    by id, so neither field affects which transactions carry the tag."""
+    tag = db.get(Tag, tag_id)
+    if tag is None:
+        raise HTTPException(status_code=404, detail="Tag not found")
+
+    fields = data.model_fields_set
+    if "name" in fields:
+        tag.name = data.name
+    if "color" in fields:
+        tag.color = data.color
+
     try:
         db.commit()
     except IntegrityError as exc:

@@ -65,6 +65,11 @@ class TagCreate(TagBase):
     pass
 
 
+class TagUpdate(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
 class Tag(TagBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,7 +141,9 @@ class CategoryRuleBase(BaseModel):
 
 
 class CategoryRuleCreate(CategoryRuleBase):
-    pass
+    # Not a persisted column — read by the endpoint only, to decide whether to
+    # backfill existing category_id-IS-NULL rows right after creating the rule.
+    apply_to_existing: bool = False
 
 
 class CategoryRuleUpdate(BaseModel):
@@ -156,6 +163,13 @@ class CategoryRule(CategoryRuleBase):
 class CategoryRuleWithNames(CategoryRule):
     category_name: str
     subcategory_name: str | None = None
+
+
+class CategoryRuleCreateResult(CategoryRule):
+    """Response for POST /rules — the rule plus how many existing rows the
+    `apply_to_existing` backfill updated (0 when it wasn't requested)."""
+
+    applied_count: int
 
 
 class RulesApplyResult(BaseModel):

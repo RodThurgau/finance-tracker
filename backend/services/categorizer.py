@@ -79,3 +79,35 @@ def categorize(transaction: Transaction, rules: list[CategoryRule]) -> bool:
     transaction.category_id = rule.category_id
     transaction.subcategory_id = rule.subcategory_id
     return True
+
+
+def apply_rule_to_uncategorized(session: Session, rule: CategoryRule) -> int:
+    """Backfill one freshly created (or edited) rule onto existing rows it matches.
+
+    Deliberately narrower than a full `/rules/apply` re-run: only rows with
+    `category_id IS NULL` are touched, not every row with `user_categorized ==
+    False`. A row that already carries a category — even one a different rule
+    assigned automatically — is left alone; this fills blanks, it does not
+    relitigate an existing categorization. `user_categorized == False` is kept
+    as a second guard because clearing a category via the UI's "Nicht
+    zugeordnet" option sets `user_categorized = True` while leaving
+    `category_id` NULL, and that deliberate choice must not be overwritten.
+
+    Returns the number of rows updated.
+    """
+    transactions = session.scalars(
+        select(Transaction).where(
+            Transaction.category_id.is_(None),
+            Transaction.user_categorized.is_(False),
+        )
+    )
+    applied = 0
+    for transaction in transactions:
+        value = target_value(transaction, rule)
+        if value is None:
+            continue
+        if rule.keyword.casefold() in value.casefold():
+            transaction.category_id = rule.category_id
+            transaction.subcategory_id = rule.subcategory_id
+            applied += 1
+    return applied

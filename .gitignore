@@ -14,7 +14,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Scoped to backend/ — a bare `lib/` also matches frontend/src/lib/, which is
+# hand-written source (format.js and friends), not a Python build artifact.
+backend/lib/
 lib64/
 parts/
 sdist/

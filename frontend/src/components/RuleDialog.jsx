@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2 } from 'lucide-react';
 
 import { RULE_FIELDS, createRule } from '../api/rules.js';
 
@@ -9,7 +10,9 @@ import { RULE_FIELDS, createRule } from '../api/rules.js';
  *
  * For `description` the useful part is the counterparty, which ING puts before
  * the em dash the parser inserts (`"Empfänger — Verwendungszweck"`). PayPal
- * descriptions have no dash, so the whole name is used.
+ * descriptions have no dash, so the whole name is used. It's a starting point,
+ * not a final answer — the field below is always editable (e.g. narrowing
+ * "VISA REWE HAMBURG HORN" down to just "VISA REWE" to catch other branches).
  */
 function suggestKeyword(transaction, field) {
   if (field !== 'description') return (transaction[field] ?? '').trim();
@@ -21,13 +24,18 @@ function suggestKeyword(transaction, field) {
 /**
  * "Als Regel speichern?" — offered after a manual recategorization.
  *
- * Saving only creates the rule. Existing transactions are deliberately left
- * alone; re-running rules over history is an explicit action on the categories
- * page (4.2).
+ * Optionally backfills existing rows too (`apply_to_existing`), but only ones
+ * with no category at all — a row that already carries a category, even one a
+ * different rule assigned automatically, is left untouched. That scope is
+ * enforced server-side (services/categorizer.py `apply_rule_to_uncategorized`),
+ * not just suggested by the checkbox label.
  */
 export function RuleDialog({ transaction, categoryId, subcategoryId, categoryName, onClose }) {
+  const queryClient = useQueryClient();
   const [field, setField] = useState('description');
   const [keyword, setKeyword] = useState(() => suggestKeyword(transaction, 'description'));
+  const [applyToExisting, setApplyToExisting] = useState(true);
+  const [result, setResult] = useState(null);
 
   // Each field implies a different keyword, so re-suggest when it changes.
   useEffect(() => {
@@ -42,14 +50,52 @@ export function RuleDialog({ transaction, categoryId, subcategoryId, categoryNam
         category_id: categoryId,
         subcategory_id: subcategoryId,
         priority: 0,
+        apply_to_existing: applyToExisting,
       }),
-    onSuccess: onClose,
+    onSuccess: (created) => {
+      if (created.applied_count > 0) {
+        queryClient.invalidateQueries({ queryKey: ['transactions'] });
+        queryClient.invalidateQueries({ queryKey: ['categories'] });
+      }
+      // Show the backfill count rather than closing immediately — silently
+      // closing would hide whether anything historical actually changed.
+      setResult(created);
+    },
   });
 
   function onSubmit(event) {
     event.preventDefault();
     if (!keyword.trim()) return;
     mutation.mutate();
+  }
+
+  if (result) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="w-full max-w-md rounded-xl border border-line bg-surface-raised p-5 shadow-xl shadow-black/50">
+          <p className="flex items-center gap-2 text-sm font-medium text-positive">
+            <CheckCircle2 size={18} />
+            Regel gespeichert
+          </p>
+          <p className="mt-2 text-sm text-content-muted">
+            {applyToExisting
+              ? result.applied_count > 0
+                ? `${result.applied_count} bestehende Transaktion${result.applied_count === 1 ? '' : 'en'} ohne Kategorie wurde${result.applied_count === 1 ? '' : 'n'} „${categoryName}“ zugeordnet.`
+                : 'Keine bestehende Transaktion ohne Kategorie passte zu diesem Schlagwort.'
+              : 'Bestehende Transaktionen wurden nicht verändert.'}
+          </p>
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-surface"
+            >
+              Fertig
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -61,7 +107,7 @@ export function RuleDialog({ transaction, categoryId, subcategoryId, categoryNam
         <h2 className="text-lg font-semibold">Als Regel speichern?</h2>
         <p className="mt-1 text-sm text-content-muted">
           Künftige Transaktionen mit diesem Schlagwort werden automatisch „{categoryName}“
-          zugeordnet. Bestehende Transaktionen bleiben unverändert.
+          zugeordnet.
         </p>
 
         <label className="mt-4 block text-sm font-medium">
@@ -87,6 +133,22 @@ export function RuleDialog({ transaction, categoryId, subcategoryId, categoryNam
             className="mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm"
             placeholder="z. B. REWE"
           />
+        </label>
+
+        <label className="mt-4 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={applyToExisting}
+            onChange={(event) => setApplyToExisting(event.target.checked)}
+            className="mt-0.5 size-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            Auch auf bestehende Transaktionen anwenden
+            <span className="block text-xs text-content-muted">
+              Nur Transaktionen ohne Kategorie werden nachträglich zugeordnet — eine bereits
+              vergebene Kategorie bleibt unangetastet.
+            </span>
+          </span>
         </label>
 
         {mutation.isError && (

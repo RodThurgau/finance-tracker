@@ -1,5 +1,6 @@
+import { CategoryManager } from '../components/CategoryManager.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
-import { Placeholder } from '../components/Placeholder.jsx';
+import { RulesSection } from '../components/RulesSection.jsx';
 
 export function Categories() {
   return (
@@ -8,7 +9,14 @@ export function Categories() {
         title="Kategorien"
         description="Kategorien, Unterkategorien und Regeln verwalten."
       />
-      <Placeholder step="4.2">Verwaltung von Kategorien und Regeln folgt.</Placeholder>
+
+      <section className="mb-10">
+        <CategoryManager />
+      </section>
+
+      <section>
+        <RulesSection />
+      </section>
     </>
   );
 }

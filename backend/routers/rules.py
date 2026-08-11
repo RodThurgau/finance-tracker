@@ -14,8 +14,14 @@ from sqlalchemy.orm import Session, selectinload
 from database import get_db
 from models import CategoryRule, Transaction
 from schemas import CategoryRule as CategoryRuleSchema
-from schemas import CategoryRuleCreate, CategoryRuleUpdate, CategoryRuleWithNames, RulesApplyResult
-from services.categorizer import categorize, load_rules
+from schemas import (
+    CategoryRuleCreate,
+    CategoryRuleCreateResult,
+    CategoryRuleUpdate,
+    CategoryRuleWithNames,
+    RulesApplyResult,
+)
+from services.categorizer import apply_rule_to_uncategorized, categorize, load_rules
 
 router = APIRouter(prefix="/api/v1/rules", tags=["rules"])
 
@@ -47,8 +53,8 @@ def list_rules(db: Session = Depends(get_db)) -> list[CategoryRuleWithNames]:
     ]
 
 
-@router.post("", response_model=CategoryRuleSchema, status_code=201)
-def create_rule(data: CategoryRuleCreate, db: Session = Depends(get_db)) -> CategoryRule:
+@router.post("", response_model=CategoryRuleCreateResult, status_code=201)
+def create_rule(data: CategoryRuleCreate, db: Session = Depends(get_db)) -> CategoryRuleCreateResult:
     rule = CategoryRule(
         keyword=data.keyword,
         field=data.field,
@@ -57,9 +63,21 @@ def create_rule(data: CategoryRuleCreate, db: Session = Depends(get_db)) -> Cate
         priority=data.priority,
     )
     db.add(rule)
+
+    # Same commit as the insert, so a backfill failure rolls the rule back too.
+    applied_count = apply_rule_to_uncategorized(db, rule) if data.apply_to_existing else 0
+
     db.commit()
     db.refresh(rule)
-    return rule
+    return CategoryRuleCreateResult(
+        id=rule.id,
+        keyword=rule.keyword,
+        field=rule.field,
+        category_id=rule.category_id,
+        subcategory_id=rule.subcategory_id,
+        priority=rule.priority,
+        applied_count=applied_count,
+    )
 
 
 @router.patch("/{rule_id}", response_model=CategoryRuleSchema)

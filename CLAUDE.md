@@ -357,10 +357,11 @@ DELETE /api/v1/categories/{id}          Delete (nullifies + clears user_categori
 
 GET    /api/v1/tags                     List all
 POST   /api/v1/tags                     Create tag
+PATCH  /api/v1/tags/{id}                Rename / recolor (assignments are keyed by id and survive both)
 DELETE /api/v1/tags/{id}                Delete (removes from transactions)
 
 GET    /api/v1/rules                    List rules
-POST   /api/v1/rules                    Create rule
+POST   /api/v1/rules                    Create rule. Optional `apply_to_existing: bool` (default false) backfills existing rows this rule matches, scoped to `category_id IS NULL` only — never a row that already carries a category, auto-assigned or not. Response adds `applied_count`.
 PATCH  /api/v1/rules/{id}               Update keyword, field, category, subcategory, priority
 DELETE /api/v1/rules/{id}               Delete rule
 POST   /api/v1/rules/apply              Re-run rules on uncategorized txns

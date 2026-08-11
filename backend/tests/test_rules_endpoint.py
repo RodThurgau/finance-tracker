@@ -169,6 +169,57 @@ def test_delete_missing_rule_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+# --- POST /rules: apply_to_existing ------------------------------------------
+
+
+def test_create_rule_with_apply_to_existing_backfills_blank_rows_only(
+    client: TestClient, db: Session
+) -> None:
+    category_id = make_category(client)
+    other_category_id = make_category(client, "Andere")
+
+    blank = make_transaction(db, description="Rewe Markt", composite_hash="a")
+    already_categorized = make_transaction(
+        db, description="Rewe Extra", composite_hash="b", category_id=other_category_id
+    )
+    user_cleared = make_transaction(
+        db, description="Rewe Nord", composite_hash="c", user_categorized=True
+    )
+    non_matching = make_transaction(db, description="Aldi Markt", composite_hash="d")
+
+    response = client.post(
+        "/api/v1/rules",
+        json={"keyword": "rewe", "category_id": category_id, "apply_to_existing": True},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["applied_count"] == 1
+    db.refresh(blank)
+    db.refresh(already_categorized)
+    db.refresh(user_cleared)
+    db.refresh(non_matching)
+    assert blank.category_id == category_id
+    # Already has a category — even auto-assigned — so it's left alone.
+    assert already_categorized.category_id == other_category_id
+    # user_categorized == True means the blank was a deliberate choice.
+    assert user_cleared.category_id is None
+    assert non_matching.category_id is None
+
+
+def test_create_rule_without_apply_to_existing_touches_nothing(
+    client: TestClient, db: Session
+) -> None:
+    category_id = make_category(client)
+    txn = make_transaction(db, description="Rewe Markt", composite_hash="a")
+
+    response = client.post("/api/v1/rules", json={"keyword": "rewe", "category_id": category_id})
+
+    assert response.status_code == 201
+    assert response.json()["applied_count"] == 0
+    db.refresh(txn)
+    assert txn.category_id is None
+
+
 # --- POST /rules/apply --------------------------------------------------------
 
 

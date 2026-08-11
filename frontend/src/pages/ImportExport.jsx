@@ -3,11 +3,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 
 import { importCsv, previewImport } from '../api/imports.js';
+import { ExportPanel } from '../components/ExportPanel.jsx';
 import { FileDropzone } from '../components/FileDropzone.jsx';
 import { ImportPreview } from '../components/ImportPreview.jsx';
 import { ImportSummary } from '../components/ImportSummary.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
-import { Placeholder } from '../components/Placeholder.jsx';
 
 export function ImportExport() {
   const queryClient = useQueryClient();
@@ -109,7 +109,7 @@ export function ImportExport() {
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">Export</h2>
-        <Placeholder step="3.5">Filter, Vorschau und CSV-Export folgen.</Placeholder>
+        <ExportPanel />
       </section>
     </>
   );

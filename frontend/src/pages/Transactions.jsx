@@ -22,6 +22,10 @@ import { TransactionsTable } from '../components/TransactionsTable.jsx';
 // charts and the tags page navigate here pre-filtered.
 const DEFAULT_FILTERS = {
   category_id: '',
+  // No FilterBar control sets this (yet) — it exists here so a link built
+  // elsewhere, e.g. the Übersicht page's "Nicht kategorisiert" pie slice,
+  // is actually honored instead of silently dropped.
+  uncategorized: '',
   untagged: '',
   source: '',
   date_from: '',

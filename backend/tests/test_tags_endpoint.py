@@ -80,6 +80,51 @@ def test_list_tags_includes_usage_count(
     assert by_name["Gemeinsame Ausgabe"]["usage_count"] == 0
 
 
+def test_update_tag_renames_and_recolors(client: TestClient) -> None:
+    tag_id = client.post("/api/v1/tags", json={"name": "Alt", "color": "#000000"}).json()["id"]
+
+    response = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Neu", "color": "#22d3ee"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Neu"
+    assert response.json()["color"] == "#22d3ee"
+
+
+def test_update_tag_keeps_unsent_fields(client: TestClient) -> None:
+    tag_id = client.post("/api/v1/tags", json={"name": "Alt", "color": "#22d3ee"}).json()["id"]
+
+    response = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Neu"})
+
+    assert response.status_code == 200
+    assert response.json()["color"] == "#22d3ee"
+
+
+def test_update_tag_preserves_transaction_assignments(client: TestClient, db: Session) -> None:
+    txn = make_transaction(db)
+    tag_id = client.post("/api/v1/tags", json={"name": "Alt", "color": "#818cf8"}).json()["id"]
+    client.post(f"/api/v1/transactions/{txn.id}/tags", json={"tag_id": tag_id})
+
+    client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Neu"})
+
+    by_name = {t["name"]: t for t in client.get("/api/v1/tags").json()}
+    assert by_name["Neu"]["usage_count"] == 1
+
+
+def test_update_tag_to_duplicate_name_returns_400(client: TestClient) -> None:
+    client.post("/api/v1/tags", json={"name": "Wiederkehrend", "color": "#818cf8"})
+    tag_id = client.post("/api/v1/tags", json={"name": "Temp", "color": "#000000"}).json()["id"]
+
+    response = client.patch(f"/api/v1/tags/{tag_id}", json={"name": "Wiederkehrend"})
+
+    assert response.status_code == 400
+    assert "detail" in response.json()
+
+
+def test_update_missing_tag_returns_404(client: TestClient) -> None:
+    response = client.patch("/api/v1/tags/999999", json={"name": "Neu"})
+    assert response.status_code == 404
+
+
 def test_delete_tag(client: TestClient) -> None:
     tag_id = client.post("/api/v1/tags", json={"name": "Temp", "color": "#000000"}).json()["id"]
 
