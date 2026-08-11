@@ -11,6 +11,13 @@ excluded rows are included in exports (CLAUDE.md — the flag only affects
 stats), but the caller can still narrow with `?excluded=true/false` same as
 on the transaction list, since that's one of the filters being reused as-is.
 
+Internal transfers are the one filter that is *not* neutral by default: like
+the transaction list, the export hides them unless asked otherwise
+(`?internal=show`). They are duplicate representations of money counted
+elsewhere, so including them would hand out a CSV whose column sums are wrong
+— the opposite of what `exclude_from_stats` rows do, which are real money and
+belong in the file.
+
 The filename's date range is computed from the actual exported rows' min/max
 `date`, not from the requested date_from/date_to values, so it always
 reflects what's really in the file — including when no date filter was given
@@ -32,7 +39,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
 from models import Transaction
-from routers.transactions import SORT_COLUMNS, SortBy, SortDir, SourceFilter, apply_transaction_filters
+from routers.transactions import (
+    SORT_COLUMNS,
+    InternalFilter,
+    SortBy,
+    SortDir,
+    SourceFilter,
+    apply_transaction_filters,
+)
 
 router = APIRouter(prefix="/api/v1/export", tags=["export"])
 
@@ -79,6 +93,7 @@ def export_csv(
     max_amount: Decimal | None = None,
     uncategorized: bool | None = None,
     excluded: bool | None = None,
+    internal: InternalFilter = "hide",
     sort_by: SortBy = "date",
     sort_dir: SortDir = "desc",
     db: Session = Depends(get_db),
@@ -96,6 +111,7 @@ def export_csv(
         max_amount=max_amount,
         uncategorized=uncategorized,
         excluded=excluded,
+        internal=internal,
     )
 
     column = SORT_COLUMNS[sort_by]

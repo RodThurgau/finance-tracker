@@ -99,6 +99,24 @@ export function parseDateInput(text) {
   return iso;
 }
 
+const percentFormatter = new Intl.NumberFormat('de-DE', {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+  signDisplay: 'always',
+});
+
+/**
+ * Format a signed percentage for a trend indicator, e.g. `-24.5` → `"-24,5 %"`.
+ *
+ * German decimal comma like every other number in the UI. Unlike the amount
+ * helpers this one does take a `Number`, because a trend is a derived display
+ * value — never summed, stored or exported — so it is not bound by the
+ * Decimal-only rule that governs ledger amounts.
+ */
+export function formatPercent(value) {
+  return `${percentFormatter.format(value)} %`;
+}
+
 /** Format a plain integer count, e.g. transaction counts in the sidebar. */
 export function formatCount(value) {
   if (value === null || value === undefined) return '—';

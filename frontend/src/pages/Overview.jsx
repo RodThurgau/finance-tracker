@@ -1,21 +1,25 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { X } from 'lucide-react';
 
-import { getStatsSummary } from '../api/stats.js';
+import { getBalance, getStatsSummary } from '../api/stats.js';
 import { CategoryPieChart } from '../components/CategoryPieChart.jsx';
 import { ChartCard } from '../components/ChartCard.jsx';
-import { DateField } from '../components/DateField.jsx';
+import { DateRangeFilter } from '../components/DateRangeFilter.jsx';
 import { MonthlyBarChart } from '../components/MonthlyBarChart.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { SummaryCards } from '../components/SummaryCards.jsx';
 import { TopMerchants } from '../components/TopMerchants.jsx';
-import { calendarMonthRange } from '../lib/dateRanges.js';
+import { calendarMonthRange, formatMonth } from '../lib/dateRanges.js';
 
-const CURRENT_MONTH = calendarMonthRange(0);
-const PREVIOUS_MONTH = calendarMonthRange(1);
+// The cards report the last *complete* month, not the current one: a month
+// still in progress is always missing most of its spending, so its totals and
+// especially its trend read as a collapse rather than as information.
+const SUMMARY_MONTH = calendarMonthRange(1);
+const COMPARISON_MONTH = calendarMonthRange(2);
 const EMPTY_RANGE = { date_from: '', date_to: '' };
+
+const monthLabel = (range) => formatMonth(range.from.slice(0, 7));
 
 function useStatsSummary(key, params) {
   return useQuery({
@@ -27,18 +31,19 @@ function useStatsSummary(key, params) {
 export function Overview() {
   const [range, setRange] = useState(EMPTY_RANGE);
 
-  const currentMonth = useStatsSummary('current-month', {
-    date_from: CURRENT_MONTH.from,
-    date_to: CURRENT_MONTH.to,
+  const summaryMonth = useStatsSummary('summary-month', {
+    date_from: SUMMARY_MONTH.from,
+    date_to: SUMMARY_MONTH.to,
   });
-  const previousMonth = useStatsSummary('previous-month', {
-    date_from: PREVIOUS_MONTH.from,
-    date_to: PREVIOUS_MONTH.to,
+  const comparisonMonth = useStatsSummary('comparison-month', {
+    date_from: COMPARISON_MONTH.from,
+    date_to: COMPARISON_MONTH.to,
   });
   const rangeStats = useStatsSummary('range', range);
+  const balance = useQuery({ queryKey: ['stats-balance'], queryFn: getBalance });
 
-  const cardsError = currentMonth.error ?? previousMonth.error;
-  const cardsReady = currentMonth.isSuccess && previousMonth.isSuccess;
+  const cardsError = summaryMonth.error ?? comparisonMonth.error ?? balance.error;
+  const cardsReady = summaryMonth.isSuccess && comparisonMonth.isSuccess;
 
   return (
     <>
@@ -49,6 +54,15 @@ export function Overview() {
         <Link to="/transaktionen?excluded=true" className="font-medium text-accent hover:underline">
           Ausgeschlossene Transaktionen ansehen
         </Link>
+        <br />
+        Ebenso unberücksichtigt bleiben PayPal-Verrechnungen — die ING-Lastschrift an PayPal und die
+        zugehörige Bankgutschrift, die dieselbe Zahlung ein zweites und drittes Mal abbilden.{' '}
+        <Link
+          to="/transaktionen?internal=only"
+          className="font-medium text-accent hover:underline"
+        >
+          PayPal-Verrechnungen ansehen
+        </Link>
       </p>
 
       {cardsError && (
@@ -58,34 +72,17 @@ export function Overview() {
       )}
       {cardsReady && (
         <div className="mb-8">
-          <SummaryCards current={currentMonth.data} previous={previousMonth.data} />
+          <SummaryCards
+            current={summaryMonth.data}
+            previous={comparisonMonth.data}
+            periodLabel={monthLabel(SUMMARY_MONTH)}
+            comparisonLabel={monthLabel(COMPARISON_MONTH)}
+            balance={balance.data}
+          />
         </div>
       )}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-content-muted">Zeitraum für die Diagramme:</span>
-        <DateField
-          value={range.date_from}
-          onChange={(value) => setRange((previous) => ({ ...previous, date_from: value }))}
-          label="Datum von"
-        />
-        <span className="text-sm text-content-muted">bis</span>
-        <DateField
-          value={range.date_to}
-          onChange={(value) => setRange((previous) => ({ ...previous, date_to: value }))}
-          label="Datum bis"
-        />
-        {(range.date_from || range.date_to) && (
-          <button
-            type="button"
-            onClick={() => setRange(EMPTY_RANGE)}
-            className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-content-muted hover:bg-surface-hover hover:text-content"
-          >
-            <X size={14} />
-            Zurücksetzen
-          </button>
-        )}
-      </div>
+      <DateRangeFilter value={range} onChange={setRange} />
 
       {rangeStats.isError && (
         <p className="mb-4 rounded-lg border border-negative/40 bg-negative/10 px-3 py-2 text-sm text-negative">
@@ -96,7 +93,10 @@ export function Overview() {
       {rangeStats.isSuccess && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <ChartCard title="Ausgaben nach Kategorie">
+            <ChartCard
+              title="Ausgaben nach Kategorie"
+              hint="Einnahmen einer Kategorie sind gegengerechnet, z. B. erstattete Miete. Ohne Kategorie zählen nur Ausgaben."
+            >
               <CategoryPieChart data={rangeStats.data.by_category} />
             </ChartCard>
             <ChartCard title="Einnahmen und Ausgaben je Monat">

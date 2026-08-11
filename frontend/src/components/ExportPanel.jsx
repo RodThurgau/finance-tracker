@@ -9,6 +9,7 @@ import { FilterBar } from './FilterBar.jsx';
 
 const DEFAULT_FILTERS = {
   category_id: '',
+  uncategorized: '',
   tag_id: [],
   untagged: '',
   source: '',
@@ -16,6 +17,9 @@ const DEFAULT_FILTERS = {
   date_to: '',
   search: '',
   excluded: '',
+  // '' means "hide" (backend default). The export follows the list here: a CSV
+  // containing both funding legs would have column sums that double-count.
+  internal: '',
 };
 
 /** There's no dedicated export-preview endpoint — `GET /transactions` already

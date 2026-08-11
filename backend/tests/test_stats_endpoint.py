@@ -102,13 +102,99 @@ def test_by_category_includes_uncategorized_bucket_and_sums_correctly(
     assert by_id[None]["total"] == "-5.00"
 
 
-def test_by_category_excludes_income(client: TestClient, db: Session) -> None:
+def test_by_category_omits_a_category_that_only_earned(client: TestClient, db: Session) -> None:
+    """A category netting above zero is not spending and has no pie slice."""
     category_id = make_category(client, "Einkommen")
     make_transaction(db, amount="2000.00", when=date(2026, 1, 1), composite_hash="a", category_id=category_id)
 
     response = client.get("/api/v1/stats/summary")
 
     assert response.json()["by_category"] == []
+
+
+def test_by_category_nets_income_against_spending_in_the_same_category(
+    client: TestClient, db: Session
+) -> None:
+    """Rent paid in full, partly paid back, reports what it actually cost."""
+    category_id = make_category(client, "Wohnen")
+    make_transaction(
+        db, amount="-1200.00", when=date(2026, 1, 1), composite_hash="rent", category_id=category_id
+    )
+    make_transaction(
+        db, amount="450.00", when=date(2026, 1, 3), composite_hash="repaid", category_id=category_id
+    )
+
+    by_category = client.get("/api/v1/stats/summary").json()["by_category"]
+
+    assert [entry["total"] for entry in by_category] == ["-750.00"]
+
+
+def test_by_category_netting_is_per_category(client: TestClient, db: Session) -> None:
+    """A reimbursement only offsets the category it is filed under."""
+    housing = make_category(client, "Wohnen")
+    food = make_category(client, "Essen")
+    make_transaction(
+        db, amount="-1200.00", when=date(2026, 1, 1), composite_hash="rent", category_id=housing
+    )
+    make_transaction(
+        db, amount="450.00", when=date(2026, 1, 3), composite_hash="repaid", category_id=housing
+    )
+    make_transaction(
+        db, amount="-80.00", when=date(2026, 1, 4), composite_hash="food", category_id=food
+    )
+
+    by_id = {
+        entry["category_id"]: entry["total"]
+        for entry in client.get("/api/v1/stats/summary").json()["by_category"]
+    }
+
+    assert by_id[housing] == "-750.00"
+    assert by_id[food] == "-80.00"
+
+
+def test_by_category_drops_a_fully_reimbursed_category(client: TestClient, db: Session) -> None:
+    """Netting exactly to zero means nothing was spent — no slice."""
+    category_id = make_category(client, "Wohnen")
+    make_transaction(
+        db, amount="-500.00", when=date(2026, 1, 1), composite_hash="paid", category_id=category_id
+    )
+    make_transaction(
+        db, amount="500.00", when=date(2026, 1, 2), composite_hash="back", category_id=category_id
+    )
+
+    assert client.get("/api/v1/stats/summary").json()["by_category"] == []
+
+
+def test_total_expenses_stays_gross_while_by_category_nets(
+    client: TestClient, db: Session
+) -> None:
+    """The two figures answer different questions and no longer reconcile —
+    pinned so the divergence stays deliberate rather than becoming a surprise."""
+    category_id = make_category(client, "Wohnen")
+    make_transaction(
+        db, amount="-1200.00", when=date(2026, 1, 1), composite_hash="rent", category_id=category_id
+    )
+    make_transaction(
+        db, amount="450.00", when=date(2026, 1, 3), composite_hash="repaid", category_id=category_id
+    )
+
+    body = client.get("/api/v1/stats/summary").json()
+
+    assert body["total_expenses"] == "-1200.00"
+    assert body["by_category"][0]["total"] == "-750.00"
+
+
+def test_uncategorized_bucket_stays_gross(client: TestClient, db: Session) -> None:
+    """The unfiled bucket is not a budget, so income there is not a
+    reimbursement of anything. Netting it would cancel an uncategorized salary
+    against uncategorized spending and drop the bucket from the chart exactly
+    when it most needs attention."""
+    make_transaction(db, amount="-100.00", when=date(2026, 1, 1), composite_hash="a")
+    make_transaction(db, amount="5000.00", when=date(2026, 1, 2), composite_hash="salary")
+
+    by_category = client.get("/api/v1/stats/summary").json()["by_category"]
+
+    assert [(entry["category_id"], entry["total"]) for entry in by_category] == [(None, "-100.00")]
 
 
 def test_by_month_splits_income_and_expenses(client: TestClient, db: Session) -> None:

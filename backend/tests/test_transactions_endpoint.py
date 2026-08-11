@@ -1,4 +1,11 @@
-"""GET/PATCH /api/v1/transactions — filtering, sorting, pagination, and updates."""
+"""GET/PATCH /api/v1/transactions — filtering, sorting, pagination, and updates.
+
+Tests whose subject is some *other* dimension (source, pagination, date range,
+tags, …) pass `internal=show` so they count the complete fixture set. The list
+hides internal transfers by default — see `test_internal_transfers.py`, which
+owns that behavior — and without the opt-in these row counts would silently
+re-baseline every time that definition is tuned.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from models import Category, Tag, Transaction, TransactionTag
+
+# Every fixture row, including the PayPal funding legs.
+ALL_ROWS = {"internal": "show"}
 
 
 def upload(client: TestClient, path: Path, content_type: str = "text/csv"):
@@ -37,7 +47,7 @@ def make_category(db: Session, name: str = "Testkategorie") -> Category:
 def test_list_returns_all_transactions_with_total(client: TestClient, fixtures_dir: Path) -> None:
     import_both(client, fixtures_dir)
 
-    response = client.get("/api/v1/transactions")
+    response = client.get("/api/v1/transactions", params=ALL_ROWS)
 
     assert response.status_code == 200
     body = response.json()
@@ -49,7 +59,7 @@ def test_list_returns_all_transactions_with_total(client: TestClient, fixtures_d
 def test_list_filters_by_source(client: TestClient, fixtures_dir: Path) -> None:
     import_both(client, fixtures_dir)
 
-    response = client.get("/api/v1/transactions", params={"source": "ING"})
+    response = client.get("/api/v1/transactions", params={**ALL_ROWS, "source": "ING"})
 
     body = response.json()
     assert body["total"] == 7
@@ -59,8 +69,12 @@ def test_list_filters_by_source(client: TestClient, fixtures_dir: Path) -> None:
 def test_list_paginates(client: TestClient, fixtures_dir: Path) -> None:
     import_both(client, fixtures_dir)
 
-    first = client.get("/api/v1/transactions", params={"page": 1, "page_size": 5}).json()
-    second = client.get("/api/v1/transactions", params={"page": 2, "page_size": 5}).json()
+    first = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "page": 1, "page_size": 5}
+    ).json()
+    second = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "page": 2, "page_size": 5}
+    ).json()
 
     assert first["total"] == second["total"] == 16
     assert len(first["items"]) == 5
@@ -94,7 +108,7 @@ def test_list_filters_by_date_range(client: TestClient, fixtures_dir: Path) -> N
 
     response = client.get(
         "/api/v1/transactions",
-        params={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+        params={**ALL_ROWS, "date_from": "2026-08-01", "date_to": "2026-08-31"},
     )
 
     body = response.json()
@@ -136,8 +150,12 @@ def test_list_uncategorized_filter(client: TestClient, db: Session, fixtures_dir
     txn.user_categorized = True
     db.flush()
 
-    uncategorized = client.get("/api/v1/transactions", params={"uncategorized": True}).json()
-    categorized = client.get("/api/v1/transactions", params={"uncategorized": False}).json()
+    uncategorized = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "uncategorized": True}
+    ).json()
+    categorized = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "uncategorized": False}
+    ).json()
 
     assert uncategorized["total"] == 15
     assert categorized["total"] == 1
@@ -152,9 +170,13 @@ def test_list_excluded_filter_defaults_to_showing_all(
     txn.exclude_from_stats = True
     db.flush()
 
-    unset = client.get("/api/v1/transactions").json()
-    only_excluded = client.get("/api/v1/transactions", params={"excluded": True}).json()
-    only_included = client.get("/api/v1/transactions", params={"excluded": False}).json()
+    unset = client.get("/api/v1/transactions", params=ALL_ROWS).json()
+    only_excluded = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "excluded": True}
+    ).json()
+    only_included = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "excluded": False}
+    ).json()
 
     assert unset["total"] == 16
     assert only_excluded["total"] == 1
@@ -213,8 +235,10 @@ def test_list_filters_untagged(client: TestClient, db: Session, fixtures_dir: Pa
     import_both(client, fixtures_dir)
     tag_transactions(db, ("Wiederkehrend", 0))
 
-    untagged = client.get("/api/v1/transactions", params={"untagged": "true"}).json()
-    tagged = client.get("/api/v1/transactions", params={"untagged": "false"}).json()
+    untagged = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "untagged": "true"}
+    ).json()
+    tagged = client.get("/api/v1/transactions", params={**ALL_ROWS, "untagged": "false"}).json()
 
     assert untagged["total"] == 15
     assert tagged["total"] == 1

@@ -218,6 +218,38 @@ class StatsSummary(BaseModel):
         return str(value)
 
 
+class BalanceCheck(BaseModel):
+    """One consecutive anchor pair: what the ledger predicts against what was
+    actually observed. A non-zero `drift` means the data between the two dates
+    is incomplete or double-counted."""
+
+    on: date_type
+    expected: Decimal
+    actual: Decimal
+    drift: Decimal
+
+    @field_serializer("expected", "actual", "drift")
+    def serialize_amounts(self, value: Decimal) -> str:
+        return str(value)
+
+
+class BalanceSummary(BaseModel):
+    anchor_date: date_type
+    anchor_balance: Decimal
+    current_balance: Decimal
+    # Latest transaction date counted, or the anchor date when nothing is newer.
+    as_of: date_type
+    # What the account must have held before the earliest recorded movement, if
+    # the ledger is complete. Null when there are no transactions at all.
+    opening_date: date_type | None
+    implied_opening_balance: Decimal | None
+    checks: list[BalanceCheck]
+
+    @field_serializer("anchor_balance", "current_balance", "implied_opening_balance")
+    def serialize_amounts(self, value: Decimal | None) -> str | None:
+        return None if value is None else str(value)
+
+
 class RowErrorSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

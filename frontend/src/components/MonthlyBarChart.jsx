@@ -3,7 +3,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,11 +14,43 @@ import { formatAmount } from '../lib/format.js';
 
 const compactAmount = new Intl.NumberFormat('de-DE', { notation: 'compact', maximumFractionDigits: 1 });
 const SERIES_LABEL = { income: 'Einnahmen', expenses: 'Ausgaben' };
+const SERIES_COLOR = { income: 'var(--color-positive)', expenses: 'var(--color-negative)' };
+// Left-to-right drawing order within each month. The legend and tooltip follow
+// it so the ordering reads the same in all three places.
+const SERIES_ORDER = ['income', 'expenses'];
 
-/** Monthly income vs. expenses, stacked around a zero baseline. `data` is
- *  `/stats/summary`'s `by_month`: income positive, expenses negative, so
- *  stacking the two under one `stackId` draws income above the line and
- *  expenses below it — position, not just color, carries which is which. */
+function SeriesLegend() {
+  return (
+    <ul className="flex items-center justify-center gap-4 text-xs text-content-muted">
+      {SERIES_ORDER.map((key) => (
+        <li key={key} className="flex items-center gap-1.5">
+          <span
+            className="size-2 rounded-full"
+            style={{ backgroundColor: SERIES_COLOR[key] }}
+            aria-hidden="true"
+          />
+          {SERIES_LABEL[key]}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Monthly income vs. expenses, side by side — two bars per month off a shared
+ * baseline, which is what makes their heights directly comparable. `data` is
+ * `/stats/summary`'s `by_month`.
+ *
+ * Expenses arrive negative and are plotted as magnitude so both bars grow
+ * upward; the tooltip restores the real sign, so nothing claims an expense is
+ * a positive amount.
+ *
+ * The green/red pair is not far enough apart under red-green color blindness
+ * to carry identity by itself, so two other channels do it: the order within
+ * each month is fixed (income left, expenses right, matching the legend), and
+ * the tooltip names the series. That is also why the two bars keep a 2px gap
+ * rather than touching — adjacent fills need the surface showing between them.
+ */
 export function MonthlyBarChart({ data }) {
   // Recharts plots numeric geometry, not ledger values — the exact decimal
   // strings ride along per row for the tooltip, which is what actually
@@ -27,7 +58,7 @@ export function MonthlyBarChart({ data }) {
   const rows = data.map((entry) => ({
     month: entry.month,
     income: Number(entry.income),
-    expenses: Number(entry.expenses),
+    expenses: Math.abs(Number(entry.expenses)),
     incomeExact: entry.income,
     expensesExact: entry.expenses,
   }));
@@ -43,7 +74,7 @@ export function MonthlyBarChart({ data }) {
   return (
     <div className="h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} barCategoryGap="20%">
+        <BarChart data={rows} barCategoryGap="25%" barGap={2}>
           <CartesianGrid vertical={false} stroke="var(--color-line)" />
           <XAxis
             dataKey="month"
@@ -59,9 +90,9 @@ export function MonthlyBarChart({ data }) {
             tickLine={false}
             width={48}
           />
-          <ReferenceLine y={0} stroke="var(--color-line)" />
           <Tooltip
             labelFormatter={formatMonth}
+            itemSorter={(item) => SERIES_ORDER.indexOf(item.dataKey)}
             formatter={(_value, name, item) => [
               formatAmount(name === 'income' ? item.payload.incomeExact : item.payload.expensesExact),
               SERIES_LABEL[name],
@@ -75,28 +106,22 @@ export function MonthlyBarChart({ data }) {
             labelStyle={{ color: 'var(--color-content)' }}
             itemStyle={{ color: 'var(--color-content)' }}
           />
-          <Legend
-            formatter={(value) => SERIES_LABEL[value]}
-            wrapperStyle={{ fontSize: 12, color: 'var(--color-content-muted)' }}
-            iconType="circle"
-            iconSize={8}
-          />
-          <Bar
-            dataKey="income"
-            name="income"
-            stackId="total"
-            fill="var(--color-positive)"
-            barSize={24}
-            radius={[4, 4, 0, 0]}
-          />
-          <Bar
-            dataKey="expenses"
-            name="expenses"
-            stackId="total"
-            fill="var(--color-negative)"
-            barSize={24}
-            radius={[0, 0, 4, 4]}
-          />
+          {/* Drawn by hand rather than from the <Bar>s' own payload, which
+              Recharts emits in an order it picks itself (it came out reversed).
+              The legend order *is* the fallback identity channel here — see the
+              component docstring — so it has to match the drawing order, not
+              merely list the same two series. */}
+          <Legend content={<SeriesLegend />} />
+          {SERIES_ORDER.map((key) => (
+            <Bar
+              key={key}
+              dataKey={key}
+              name={key}
+              fill={SERIES_COLOR[key]}
+              maxBarSize={24}
+              radius={[4, 4, 0, 0]}
+            />
+          ))}
         </BarChart>
       </ResponsiveContainer>
     </div>

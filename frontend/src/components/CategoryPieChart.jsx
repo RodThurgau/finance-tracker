@@ -17,9 +17,14 @@ function sliceColor(category) {
   return category?.color && HEX_COLOR.test(category.color) ? category.color : FALLBACK_COLOR;
 }
 
-/** Pie chart of expense totals by category. `data` is `/stats/summary`'s
- *  `by_category` (expense-only, amounts negative). Clicking a slice
- *  navigates to the transaction list pre-filtered to that category. */
+/**
+ * Pie chart of spending by category. `data` is `/stats/summary`'s
+ * `by_category`: **net** of any income filed under the same category (the
+ * uncategorized bucket excepted — it stays gross), and always negative, since
+ * the backend drops categories that net to zero or above. A fully reimbursed
+ * category therefore has no slice at all rather than an empty one. Clicking a
+ * slice navigates to the transaction list filtered to that category.
+ */
 export function CategoryPieChart({ data }) {
   const navigate = useNavigate();
   const categoryIndex = useCategoryIndex();
@@ -29,7 +34,11 @@ export function CategoryPieChart({ data }) {
       data.map((entry) => ({
         key: entry.category_id ?? 'uncategorized',
         categoryId: entry.category_id,
-        name: entry.category_name ?? 'Nicht kategorisiert',
+        // "Ohne Kategorie", not "Nicht kategorisiert": the latter is the name
+        // of a real seeded category rows can be filed under, and it turns up
+        // in this same legend. Matches the transaction filter's wording, and
+        // the slice links to that filter.
+        name: entry.category_name ?? 'Ohne Kategorie',
         // Slice size is spend magnitude; totals arrive negative (expenses).
         amount: Math.abs(Number(entry.total)),
         total: entry.total,

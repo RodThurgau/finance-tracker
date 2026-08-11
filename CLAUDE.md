@@ -286,7 +286,7 @@ Comma-separated, UTF-8 **with BOM**, every field quoted, header on line 1 (no pr
 - `Datum` is `DD.MM.YYYY` and unambiguous. There is no date-order detection — parse it strictly and report a row-level error if it fails.
 - **There is no `Status` column.** Everything in the export is already booked, so there is no status filter and no dropped-row count for it.
 - `Name` is empty on PayPal's own bookkeeping rows (bank credits, authorization holds). Those rows still import; `description` falls back to `Beschreibung` when `Name` is blank.
-- Every card/express purchase is normally followed by a `Bankgutschrift auf PayPal-Konto` row of the opposite sign that funds it, linked by `Zugehöriger Transaktionscode`. **The importer does not touch these** — no netting, no auto-exclusion. They are ordinary rows, and the user flags them with `exclude_from_stats` if they distort totals.
+- Every card/express purchase is normally followed by a `Bankgutschrift auf PayPal-Konto` row of the opposite sign that funds it, linked by `Zugehöriger Transaktionscode`. **The importer still does not touch these** — no netting, no auto-exclusion, nothing written to the row. They import as ordinary rows and are filtered at *query* time instead; see "Internal transfers".
 
 ## Upsert logic
 
@@ -304,6 +304,54 @@ Upsert on `composite_hash`:
 1. If hash exists: skip entirely (preserve all user edits).
 2. If hash is new: insert, run categorization rules.
 3. Never delete existing rows on reimport — only add new ones.
+
+## Internal transfers
+
+A single PayPal purchase reaches the database three times:
+
+| Source | Row | Amount |
+|--------|-----|--------|
+| PayPal | the purchase itself, e.g. `Intelligent Apps GmbH` | −37,50 |
+| PayPal | `Bankgutschrift auf PayPal-Konto`, which funds it | +37,50 |
+| ING | `PayPal Europe S.a.r.l. et Cie S.C.A`, which funds *that* | −37,50 |
+
+Only the first is a real expense. The other two — the **internal transfers** — are money moving between the user's own accounts to settle it. Both are dropped from the transaction list, the export, and every aggregate, leaving exactly one copy of the amount: the PayPal row, which names the real merchant where the ING row only ever says "PayPal Europe".
+
+**The two legs are dropped together or not at all.** Dropping one leaves the totals wrong in the other direction. That is why there is a single definition in `services/internal_transfers.py` — `is_internal_transfer()`, a SQL predicate — rather than a filter re-spelled at each call site.
+
+The definition:
+
+- ING rows whose `counter_account` contains `paypal`, case-insensitive. A substring rather than the full legal name, because ING's spelling of `S.C.A.` varies between exports.
+- PayPal rows whose `transaction_type` is `Bankgutschrift auf PayPal-Konto`, case-insensitive. Stable, since the German-locale export is the only one supported.
+
+**This is derived, never stored.** Nothing is written to the row, so re-tuning the match takes effect immediately with no migration and no rows left carrying a stale flag. It is deliberately *not* `exclude_from_stats`, which is user-owned, importer-untouchable, and by design does not affect the transaction list.
+
+Where it applies:
+
+- `GET /transactions` and `GET /export/csv`: hidden by default. `?internal=show` includes them, `?internal=only` shows nothing else. This is the one filter that is **not** neutral when unset.
+- `/stats/summary`: dropped unconditionally, like `exclude_from_stats`. No override parameter.
+
+`internal=only` is not a convenience — it is the audit view. Without it a mis-tuned match would hide rows with no way to discover what went missing.
+
+**The known gap:** an ING→PayPal debit whose PayPal counterpart was never imported is hidden while nothing else accounts for it, so that money silently leaves the totals. This bites whenever the two CSVs cover different date ranges — import both sources over the same period. `internal=only` is how you check.
+
+Not covered: PayPal authorization holds (`Einbehaltung für offene Autorisierung` and its `Rückbuchung allgemeiner Einbehaltung`) also net to zero, but are not funding legs and are not filtered.
+
+## Account balance
+
+A CSV export records movements, never a balance — nothing in the data says how much is actually in the account. So the balance is **anchored**: real figures read off the bank at the end of a named day, listed in `backend/balance.py`.
+
+```
+current balance = latest anchor + sum(transactions after that anchor's date)
+```
+
+An anchor is an **end-of-day** figure: rows dated on the anchor day are already inside it and are never added again.
+
+**Anchors are the consistency check.** Add one each time the balance is reconciled against the bank. `/stats/balance` then reports, for every consecutive pair, the balance the ledger *predicts* against the one actually observed. A non-zero `drift` means the imported data between those dates is incomplete or double-counted, and the Übersicht surfaces it on the Kontostand card instead of showing a number that quietly lies. `implied_opening_balance` is the same idea pointed backwards: what the account must have held before the earliest recorded movement.
+
+Append anchors, never edit a past one — an anchor adjusted to make a drift disappear destroys the only evidence that something was wrong.
+
+The balance sums exactly the rows `/stats/summary` aggregates (`_countable` in `routers/stats.py`): no `exclude_from_stats` rows, no internal transfers. Dropping the funding legs is safe because a PayPal purchase and the ING debit settling it are the same money — and if that pairing ever breaks, the next anchor's drift is what surfaces it.
 
 ## Categorization rules
 
@@ -333,6 +381,7 @@ Subcategory deletion follows the same shape: `subcategory_id = NULL` on affected
 - Filtering via query parameters: `?category_id=3&tag_id=5&date_from=2024-01-01&date_to=2024-12-31&search=rewe`
 - `tag_id` is repeatable and ORs: `?tag_id=1&tag_id=2` returns rows carrying *either* tag. A single `tag_id` behaves as it always did.
 - `untagged` is the tag-side counterpart to `uncategorized`: `true` returns rows with no tags at all, `false` returns rows carrying at least one, unset does not filter. Passing it together with `tag_id` is contradictory and correctly returns nothing.
+- `internal` (`hide` | `show` | `only`, default `hide`) is the one filter that does **not** default to neutral — internal transfers are hidden unless asked for. See "Internal transfers".
 - Pagination: `?page=1&page_size=50`
 - Standard error shape: `{ "detail": "message" }`
 - Amounts are strings in JSON, both directions. `min_amount` / `max_amount` query params parse as `Decimal`.
@@ -343,7 +392,7 @@ Subcategory deletion follows the same shape: `subcategory_id = NULL` on affected
 ```
 POST   /api/v1/import/preview          Preclean + detect + parse only — no DB write; source, discarded preamble, first 5 rows, row errors
 POST   /api/v1/import/csv              Upload + upsert CSV
-GET    /api/v1/transactions             List (filtered, paginated, sorted)
+GET    /api/v1/transactions             List (filtered, paginated, sorted). Hides internal transfers unless `internal=show|only`
 PATCH  /api/v1/transactions/{id}        Update category, subcategory, exclude_from_stats
 POST   /api/v1/transactions/{id}/tags   Add tag
 DELETE /api/v1/transactions/{id}/tags/{tag_id}  Remove tag
@@ -366,11 +415,12 @@ PATCH  /api/v1/rules/{id}               Update keyword, field, category, subcate
 DELETE /api/v1/rules/{id}               Delete rule
 POST   /api/v1/rules/apply              Re-run rules on uncategorized txns
 
-GET    /api/v1/export/csv               Export filtered data
+GET    /api/v1/export/csv               Export filtered data. Same `internal` default as the list
 GET    /api/v1/stats/summary            Aggregated spending data for charts
+GET    /api/v1/stats/balance            Anchored running balance + per-anchor drift check
 ```
 
-`/stats/summary` filters `exclude_from_stats == False` on every aggregate it computes. No exceptions, no query parameter to override it.
+`/stats/summary` filters `exclude_from_stats == False` and drops internal transfers on every aggregate it computes. No exceptions, no query parameter to override either.
 
 ## Frontend conventions
 
@@ -403,6 +453,16 @@ npm install
 npm run dev   # defaults to port 5173, proxied to backend
 ```
 
+## Changelog
+
+`CHANGELOG.md` is the running record of what changed and what is still open. Keep it current — it ships in the same commit as the change it describes, not afterwards.
+
+- **Every change gets an entry.** Behavior, endpoints, schema, UI, build/tooling config. A change that is invisible in the changelog is a change nobody can find later.
+- **Newest first.** `Open` holds observations and todos that are not implemented yet; `Unreleased` holds finished work not yet cut into a release. Move an item from `Open` to `Unreleased` when it lands — don't delete it.
+- **Write down the "why", not just the "what".** The reason for a change is the part that isn't recoverable from the diff.
+- **Record the decisions an entry depends on**, including the ones still open, and name any rule in this file that the change contradicts — a spec change gets made here in the same commit, never left implied.
+- Entries are English, like the rest of the docs and the code. Only user-facing UI strings are German.
+
 ## Code style
 
 - Python: type hints on all function signatures. Pydantic for validation. No bare `except`. Docstrings on service functions.
@@ -423,3 +483,4 @@ npm run dev   # defaults to port 5173, proxied to backend
 - Don't let the importer write to `transaction_tags` or to `exclude_from_stats`.
 - Don't commit real bank exports. Fixtures are synthetic.
 - don't use pip or python -m venv directly — uv owns the environment and the lockfile
+- Don't land a change without a `CHANGELOG.md` entry in the same commit.

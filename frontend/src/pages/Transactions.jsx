@@ -32,6 +32,9 @@ const DEFAULT_FILTERS = {
   date_to: '',
   search: '',
   excluded: '',
+  // '' means "hide", matching the backend default — PayPal funding legs are
+  // duplicates of money already counted, so they stay out unless asked for.
+  internal: '',
   sort_by: 'date',
   sort_dir: 'desc',
   page: '1',

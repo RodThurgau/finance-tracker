@@ -14,6 +14,10 @@ const SOURCES = [
   { value: 'PayPal', label: 'PayPal' },
 ];
 
+// Sentinel for the category select's "no category at all" option. Not a real
+// category id, so it can never collide with one.
+const UNCATEGORIZED = 'uncategorized';
+
 export function FilterBar({ filters, onChange, onReset }) {
   const { data: categories } = useCategories();
   const [searchDraft, setSearchDraft] = useState(filters.search);
@@ -46,12 +50,28 @@ export function FilterBar({ filters, onChange, onReset }) {
         />
       </div>
 
+      {/* "Ohne Kategorie" is a third state of the same control rather than a
+          separate checkbox — picking a category and asking for rows without one
+          are mutually exclusive questions, so one select can't be in both. It
+          deliberately does *not* say "Nicht kategorisiert": that is the name of
+          a real seeded category which rows can be assigned to, and two entries
+          reading the same would mean two different things. Mirrors the tag
+          filter's "Ohne Tags". */}
       <select
-        value={filters.category_id}
-        onChange={(event) => onChange({ category_id: event.target.value })}
+        value={filters.uncategorized === 'true' ? UNCATEGORIZED : filters.category_id}
+        onChange={(event) => {
+          const { value } = event.target;
+          onChange(
+            value === UNCATEGORIZED
+              ? { category_id: '', uncategorized: 'true' }
+              : { category_id: value, uncategorized: '' },
+          );
+        }}
         className={FIELD}
+        aria-label="Kategorie"
       >
         <option value="">Alle Kategorien</option>
+        <option value={UNCATEGORIZED}>Ohne Kategorie</option>
         {(categories ?? []).map((category) => (
           <option key={category.id} value={category.id}>
             {category.name}
@@ -105,6 +125,19 @@ export function FilterBar({ filters, onChange, onReset }) {
         <option value="">Alle Zeilen</option>
         <option value="false">Ohne ausgeschlossene</option>
         <option value="true">Nur ausgeschlossene</option>
+      </select>
+
+      {/* Unlike the others, this filter is not neutral when unset: the empty
+          value means "hide", which is the backend's default. */}
+      <select
+        value={filters.internal}
+        onChange={(event) => onChange({ internal: event.target.value })}
+        className={FIELD}
+        aria-label="PayPal-Verrechnungen"
+      >
+        <option value="">Ohne PayPal-Verrechnungen</option>
+        <option value="show">Mit PayPal-Verrechnungen</option>
+        <option value="only">Nur PayPal-Verrechnungen</option>
       </select>
 
       <button

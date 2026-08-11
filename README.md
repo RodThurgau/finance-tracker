@@ -2,7 +2,7 @@
 
 A local-first personal finance tracker that ingests ING (DE) and PayPal CSV exports into a SQLite database, with a React UI for browsing, categorizing, tagging, and exporting transactions.
 
-See [CLAUDE.md](CLAUDE.md) for full architecture and conventions.
+See [CLAUDE.md](CLAUDE.md) for full architecture and conventions, and [CHANGELOG.md](CHANGELOG.md) for what changed and what is still open.
 
 ## Starting the app (e.g. after a reboot)
 

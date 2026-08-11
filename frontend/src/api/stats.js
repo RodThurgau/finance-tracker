@@ -6,3 +6,10 @@ import { api } from './client.js';
 export function getStatsSummary(params) {
   return api.get('/stats/summary', params);
 }
+
+/** GET /stats/balance. Not date-filtered: the balance is anchored to a
+ *  hand-verified figure in the backend's `balance.py` and carried forward by
+ *  every movement since, so a date range would not mean anything here. */
+export function getBalance() {
+  return api.get('/stats/balance');
+}

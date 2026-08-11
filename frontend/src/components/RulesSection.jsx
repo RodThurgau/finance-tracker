@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 
 import { RULE_FIELDS, applyRules, createRule, deleteRule, listRules, updateRule } from '../api/rules.js';
 import { useCategories } from '../hooks/useLookups.js';
@@ -17,6 +17,8 @@ const EMPTY_DRAFT = {
   priority: '0',
   apply_to_existing: false,
 };
+
+const EMPTY_FILTERS = { search: '', field: '', category_id: '' };
 
 const fieldLabel = (value) =>
   RULE_FIELDS.find((option) => option.value === value)?.label ?? value;
@@ -164,6 +166,28 @@ export function RulesSection() {
   const [editDraft, setEditDraft] = useState(EMPTY_DRAFT);
   const [confirming, setConfirming] = useState(null);
   const [applyResult, setApplyResult] = useState(null);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+
+  // Filtered in the browser: GET /rules returns the whole set unpaginated (it
+  // has to — the categorizer's precedence only means anything as a complete
+  // ordered list), so there is nothing a round trip would add.
+  const visibleRules = useMemo(() => {
+    const needle = filters.search.trim().toLowerCase();
+    return (rules.data ?? []).filter((rule) => {
+      // Never filter out the row being edited: the form lives inside it, so
+      // hiding it mid-edit would discard what the user has typed.
+      if (rule.id === editingId) return true;
+      if (filters.field && (rule.field ?? 'description') !== filters.field) return false;
+      if (filters.category_id && String(rule.category_id) !== filters.category_id) return false;
+      if (!needle) return true;
+      return [rule.keyword, rule.category_name, rule.subcategory_name]
+        .filter(Boolean)
+        .some((text) => text.toLowerCase().includes(needle));
+    });
+  }, [rules.data, filters, editingId]);
+
+  const isFiltering =
+    Boolean(filters.search.trim()) || Boolean(filters.field) || Boolean(filters.category_id);
 
   function invalidateRules({ transactionsToo = false } = {}) {
     queryClient.invalidateQueries({ queryKey: ['rules'] });
@@ -291,10 +315,83 @@ export function RulesSection() {
         </p>
       )}
 
+      {/* Only worth showing once there is enough to search through. */}
+      {rules.isSuccess && rules.data.length > 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-56 flex-1">
+            <Search
+              size={16}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-content-muted"
+            />
+            <input
+              value={filters.search}
+              onChange={(event) =>
+                setFilters((previous) => ({ ...previous, search: event.target.value }))
+              }
+              placeholder="Schlagwort oder Kategorie suchen"
+              aria-label="Regeln durchsuchen"
+              className={`${FIELD} w-full pl-9`}
+            />
+          </div>
+
+          <select
+            value={filters.field}
+            onChange={(event) =>
+              setFilters((previous) => ({ ...previous, field: event.target.value }))
+            }
+            className={FIELD}
+            aria-label="Regeln nach Feld filtern"
+          >
+            <option value="">Alle Felder</option>
+            {RULE_FIELDS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filters.category_id}
+            onChange={(event) =>
+              setFilters((previous) => ({ ...previous, category_id: event.target.value }))
+            }
+            className={FIELD}
+            aria-label="Regeln nach Kategorie filtern"
+          >
+            <option value="">Alle Kategorien</option>
+            {(categories ?? []).map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+
+          {isFiltering && (
+            <>
+              <span className="tabular text-sm text-content-muted">
+                {visibleRules.length} von {rules.data.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setFilters(EMPTY_FILTERS)}
+                className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-content-muted hover:bg-surface-hover hover:text-content"
+              >
+                <X size={14} />
+                Filter zurücksetzen
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {rules.isSuccess &&
         (rules.data.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-content-muted">
             Noch keine Regeln angelegt.
+          </div>
+        ) : visibleRules.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-line p-10 text-center text-sm text-content-muted">
+            Keine Regel passt zu diesem Filter.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-line">
@@ -309,7 +406,7 @@ export function RulesSection() {
                 </tr>
               </thead>
               <tbody>
-                {rules.data.map((rule) =>
+                {visibleRules.map((rule) =>
                   editingId === rule.id ? (
                     <tr key={rule.id} className="border-t border-line">
                       <td colSpan={5} className="p-3">

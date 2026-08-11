@@ -14,12 +14,20 @@ from database import get_db
 from models import Tag, Transaction
 from schemas import BulkUpdateResult, Transaction as TransactionSchema
 from schemas import TransactionBulkUpdate, TransactionListResponse, TransactionUpdate
+from services.internal_transfers import is_internal_transfer
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
 
 SortBy = Literal["date", "amount", "description"]
 SortDir = Literal["asc", "desc"]
 SourceFilter = Literal["ING", "PayPal"]
+
+# Unlike every other filter here, this one is not neutral when unset: internal
+# transfers are duplicate representations of money already counted elsewhere
+# (see services/internal_transfers.py), so the default hides them. "show" opts
+# back into the raw ledger; "only" is the audit view — without it a mis-tuned
+# match would hide rows with no way to discover what went missing.
+InternalFilter = Literal["hide", "show", "only"]
 
 # Public (no leading underscore): reused as-is by routers/export.py so
 # GET /export/csv can accept "the same filters as transaction list" without
@@ -46,7 +54,12 @@ def apply_transaction_filters(
     max_amount: Decimal | None,
     uncategorized: bool | None,
     excluded: bool | None,
+    internal: str = "hide",
 ) -> Select:
+    if internal == "hide":
+        stmt = stmt.where(~is_internal_transfer())
+    elif internal == "only":
+        stmt = stmt.where(is_internal_transfer())
     if category_id is not None:
         stmt = stmt.where(Transaction.category_id == category_id)
     if subcategory_id is not None:
@@ -97,6 +110,7 @@ def list_transactions(
     max_amount: Decimal | None = None,
     uncategorized: bool | None = None,
     excluded: bool | None = None,
+    internal: InternalFilter = "hide",
     sort_by: SortBy = "date",
     sort_dir: SortDir = "desc",
     page: int = Query(1, ge=1),
@@ -116,6 +130,7 @@ def list_transactions(
         max_amount=max_amount,
         uncategorized=uncategorized,
         excluded=excluded,
+        internal=internal,
     )
 
     total = (
