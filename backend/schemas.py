@@ -1,9 +1,11 @@
-from datetime import date as date_type
+from datetime import date as date_type, datetime
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 from services.categorizer import RuleField
+from services.sql_console import DEFAULT_ROW_LIMIT
 
 
 class AmountModel(BaseModel):
@@ -296,3 +298,94 @@ class ImportSummarySchema(BaseModel):
     errors: list[RowErrorSchema]
     date_range: tuple[date_type, date_type] | None
     skipped_rows: list[SkippedRowSchema]
+
+
+class SqlQueryRequest(BaseModel):
+    """A statement typed into the SQL console."""
+
+    sql: str
+    limit: int = DEFAULT_ROW_LIMIT
+
+
+class SqlQueryResultSchema(BaseModel):
+    """Rows exactly as SQLite returned them.
+
+    `rows` is a list of lists rather than a list of objects: a query is free to
+    return two columns with the same name (`SELECT a.id, b.id …`), and keying by
+    name would quietly drop one of them.
+    """
+
+    columns: list[str]
+    rows: list[list[Any]]
+    row_count: int
+    truncated: bool
+    elapsed_ms: int
+
+
+class SavedQueryBase(BaseModel):
+    name: str
+    sql: str
+    folder: str = ""
+
+    @field_validator("name", "folder")
+    @classmethod
+    def strip_whitespace(cls, value: str) -> str:
+        """Trailing spaces would make `"Monatlich "` a second folder next to
+        `"Monatlich"`, identical on screen and impossible to merge."""
+        return value.strip()
+
+
+class SavedQueryCreate(SavedQueryBase):
+    pass
+
+
+class SavedQueryUpdate(BaseModel):
+    """Every field optional — the console patches `sql` alone when you save over
+    an open tab, and `folder` alone when you move one."""
+
+    name: str | None = None
+    sql: str | None = None
+    folder: str | None = None
+
+    @field_validator("name", "folder")
+    @classmethod
+    def strip_whitespace(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+
+class SavedQuery(SavedQueryBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class FolderRename(BaseModel):
+    name: str
+    new_name: str
+
+    @field_validator("name", "new_name")
+    @classmethod
+    def strip_whitespace(cls, value: str) -> str:
+        return value.strip()
+
+
+class SchemaColumn(BaseModel):
+    name: str
+    type: str
+    nullable: bool
+    primary_key: bool
+    note: str | None = None
+
+
+class SchemaTable(BaseModel):
+    name: str
+    columns: list[SchemaColumn]
+
+
+class DatabaseSchema(BaseModel):
+    """What the console's schema panel lists. Derived from the live database via
+    SQLAlchemy's inspector, so it cannot drift from the migrations."""
+
+    tables: list[SchemaTable]

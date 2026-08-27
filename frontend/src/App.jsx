@@ -6,6 +6,7 @@ import { Transactions } from './pages/Transactions.jsx';
 import { Categories } from './pages/Categories.jsx';
 import { Tags } from './pages/Tags.jsx';
 import { ImportExport } from './pages/ImportExport.jsx';
+import { Sql } from './pages/Sql.jsx';
 import { NotFound } from './pages/NotFound.jsx';
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="kategorien" element={<Categories />} />
         <Route path="tags" element={<Tags />} />
         <Route path="import-export" element={<ImportExport />} />
+        <Route path="sql" element={<Sql />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

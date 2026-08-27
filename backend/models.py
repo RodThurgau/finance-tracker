@@ -1,12 +1,14 @@
-from datetime import date as date_type
+from datetime import UTC, date as date_type, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -79,6 +81,34 @@ class TransactionTag(Base):
 
     transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id"), primary_key=True)
     tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), primary_key=True)
+
+
+class SavedQuery(Base):
+    """A named SQL snippet from the console, optionally filed under a folder.
+
+    Folders are not a table: a folder is whatever distinct `folder` values the
+    saved queries carry, so it exists while something is in it and disappears
+    when the last query leaves. That keeps "rename a folder" an UPDATE and makes
+    an empty folder impossible to leave lying around.
+
+    `folder` is `""` for the top level rather than NULL, because SQLite treats
+    every NULL as distinct in a unique constraint — with NULL the uniqueness of
+    (folder, name) would silently stop applying to unfiled queries.
+    """
+
+    __tablename__ = "saved_queries"
+    __table_args__ = (UniqueConstraint("folder", "name", name="uq_saved_query_name_per_folder"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    folder: Mapped[str] = mapped_column(String, nullable=False, default="")
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    sql: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
 
 
 class CategoryRule(Base):

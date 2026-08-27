@@ -25,12 +25,15 @@ finance-tracker/
 │   ├── schemas.py               # Pydantic request/response schemas
 │   ├── backup.py                # Pre-migration DB snapshot
 │   ├── seed.py                  # Default categories/tags for an empty database
+│   ├── balance.py               # Hand-verified balance anchors
 │   ├── routers/
 │   │   ├── transactions.py      # CRUD, filtering, bulk update
 │   │   ├── categories.py        # Category + subcategory management
 │   │   ├── tags.py              # Tag CRUD
 │   │   ├── imports.py           # CSV upload + upsert logic
 │   │   ├── rules.py             # Categorization rules CRUD
+│   │   ├── stats.py             # Aggregates + anchored balance
+│   │   ├── sql.py               # SQL console: execute, saved queries, schema
 │   │   └── export.py            # Filtered CSV export
 │   ├── parsers/
 │   │   ├── preclean.py          # Strip metadata preamble, locate header row
@@ -39,6 +42,8 @@ finance-tracker/
 │   │   └── paypal.py            # PayPal CSV → common schema
 │   ├── services/
 │   │   ├── categorizer.py       # Apply rules to transactions
+│   │   ├── internal_transfers.py # The is_internal_transfer() predicate
+│   │   ├── sql_console.py       # Read-only guard for user-typed SQL
 │   │   └── upsert.py            # Upsert logic per source
 │   ├── alembic/
 │   │   ├── versions/
@@ -63,7 +68,8 @@ finance-tracker/
 │   │   │   ├── Overview.jsx
 │   │   │   ├── Categories.jsx
 │   │   │   ├── Tags.jsx
-│   │   │   └── ImportExport.jsx
+│   │   │   ├── ImportExport.jsx
+│   │   │   └── Sql.jsx
 │   │   ├── components/          # Reusable UI components
 │   │   └── api/                 # Fetch wrappers for backend
 │   ├── package.json
@@ -97,7 +103,7 @@ Rules:
 
 ## Database schema
 
-Six tables. All IDs are integers with autoincrement. Schema changes go through Alembic — see "Migrations".
+Seven tables. All IDs are integers with autoincrement. Schema changes go through Alembic — see "Migrations".
 
 ### `categories`
 
@@ -170,6 +176,25 @@ Composite PK on (transaction_id, tag_id).
 | priority       | INTEGER | Higher = matched first. Default 0            |
 
 `field` is validated by a Pydantic enum on write. A rule whose `field` is NULL on an old row is treated as `description`. If the target field is NULL on a transaction, the rule simply does not match.
+
+### `saved_queries`
+
+| Column     | Type     | Notes                                          |
+|------------|----------|------------------------------------------------|
+| id         | INTEGER  | PK                                             |
+| folder     | TEXT     | Not null. `""` is the top level                |
+| name       | TEXT     | Unique within folder                           |
+| sql        | TEXT     | The statement, stored verbatim                 |
+| created_at | DATETIME | Not null                                       |
+| updated_at | DATETIME | Not null, bumped on write                      |
+
+Unique constraint on (folder, name).
+
+Folders are not a table. A folder is whatever distinct `folder` values the saved queries carry: it exists while something is in it, disappears when the last query leaves, and renaming one is an UPDATE across the rows that share the name. There is deliberately no way to create an empty folder.
+
+`folder` is `""` rather than NULL for the top level because SQLite treats every NULL as distinct in a unique index — with NULL, two unfiled queries could share a name.
+
+The `sql` column is never executed by the app on its own. It is text the console hands back to the editor; running it is always an explicit `POST /sql/execute` with the same guard as anything typed by hand.
 
 ## Migrations
 
@@ -353,6 +378,26 @@ Append anchors, never edit a past one — an anchor adjusted to make a drift dis
 
 The balance sums exactly the rows `/stats/summary` aggregates (`_countable` in `routers/stats.py`): no `exclude_from_stats` rows, no internal transfers. Dropping the funding legs is safe because a PayPal purchase and the ING debit settling it are the same money — and if that pairing ever breaks, the next anchor's drift is what surfaces it.
 
+## SQL console
+
+A **read-only** SQL editor at `/sql`, for the questions the built-in screens don't answer. It runs statements the user typed, which makes it the one deliberate exception to "never use raw SQL strings in application code" under "Code style" — the SQL here *is* the user input, not app logic. Nothing else in the codebase may cite it as precedent.
+
+**Three independent guards**, in `services/sql_console.py` and `database.py`:
+
+1. **The statement is parsed before it runs.** Exactly one statement, and it must start with `SELECT`, `WITH`, `VALUES` or `EXPLAIN`. It is then scanned for write keywords anywhere in the text — `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `ATTACH`, `DETACH`, `VACUUM`, `REINDEX`, `ANALYZE`, `PRAGMA`, and the transaction verbs — which is what stops `WITH x AS (…) DELETE FROM …`. Both checks run against a copy with string literals, quoted identifiers and comments blanked out, so a `Verwendungszweck` reading "DROP TABLE" is not mistaken for one.
+   - `ATTACH` is blocked specifically: it takes a plain path, and a plain path opens read-write even from a read-only connection.
+   - `PRAGMA` is blocked because `writable_schema` is a pragma. `GET /sql/schema` covers what `pragma table_info` would have been used for.
+2. **The connection is opened `mode=ro`** (`readonly_engine` in `database.py`, a second engine over the same file). SQLite itself refuses the write if the parse is ever fooled.
+3. **Every query runs under a 5-second deadline**, enforced through SQLite's progress handler, so an accidental cross join cannot wedge the server. It aborts mid-statement, before the first row.
+
+Layer 1 alone would be a parser arms race; layer 2 alone would surface SQLite's errors for statements this app never meant to accept. Both are cheap. Keep all three.
+
+**Results are returned exactly as SQLite stored them.** In particular `amount` comes back as integer cents, *not* divided by 100 — an arbitrary query can compute anything, and guessing which integers are money would corrupt the ones that aren't. The schema panel labels the column instead (`COLUMN_NOTES` in `routers/sql.py`), and the starter query in the editor divides explicitly. This is the one place in the app where an amount is not a `Decimal`; it is display of a raw cell, never arithmetic the app relies on.
+
+Rows are capped (default 500, max 10 000) by fetching one extra row and reporting `truncated`, rather than by rewriting the user's SQL — appending a `LIMIT` to a statement someone else wrote is how a console starts lying about results.
+
+**Tabs are in-memory only.** Multiple query tabs are React state and are gone on reload; that is the intended split between scratch work and the saved-query list, and it keeps the "no browser-side storage" rule intact. Saving is the persistence story.
+
 ## Categorization rules
 
 Rules are keyword-based, case-insensitive substring matches. Each rule declares which field it matches against via `field`: `description`, `counter_account`, or `transaction_type`. This exists because plenty of real rules are not description rules — a landlord is best matched on `counter_account`, and "every `Gehalt/Rente` row is Income" is a `transaction_type` rule.
@@ -418,6 +463,14 @@ POST   /api/v1/rules/apply              Re-run rules on uncategorized txns
 GET    /api/v1/export/csv               Export filtered data. Same `internal` default as the list
 GET    /api/v1/stats/summary            Aggregated spending data for charts
 GET    /api/v1/stats/balance            Anchored running balance + per-anchor drift check
+
+POST   /api/v1/sql/execute              Run one read-only statement. 400 with the reason if refused or broken
+GET    /api/v1/sql/schema               Tables and columns of the live database, with notes on the traps
+GET    /api/v1/sql/queries              Saved queries, ordered folder-then-name
+POST   /api/v1/sql/queries              Save a query. Names the folder implicitly
+PATCH  /api/v1/sql/queries/{id}         Rename, re-file, or overwrite the statement
+DELETE /api/v1/sql/queries/{id}         Delete a saved query
+PATCH  /api/v1/sql/folders              Rename a folder, moving every query in it. Onto an existing name = merge
 ```
 
 `/stats/summary` filters `exclude_from_stats == False` and drops internal transfers on every aggregate it computes. No exceptions, no query parameter to override either.
@@ -453,12 +506,35 @@ npm install
 npm run dev   # defaults to port 5173, proxied to backend
 ```
 
+### Shells
+
+The machine is Windows, but **run everything through bash (Git Bash)**. `uv`,
+`npm`, `git`, and `python` are all on `PATH` there, so the commands above work
+as written and there is no reason to reach for PowerShell.
+
+**Never run PowerShell.** It hangs on this machine — not slowly, stuck — and a
+wedged shell costs more time than the command was ever worth. When a step
+genuinely needs PowerShell (starting the dev server for a manual look,
+`Invoke-WebRequest` against a running backend, anything interactive), **write
+the command out for the user to run and hand it over.** Say what it is for and
+what the expected output looks like, so the result can be reported back without
+a second round trip.
+
+Read-only inspection does not need a shell to be running the app. Querying
+`data/finance.db` directly with a throwaway `python` + `sqlite3` script
+(open it `mode=ro`) answers most "what does the data actually say" questions
+without starting the server at all — mirror the filters in
+`_countable` / `is_internal_transfer()` so the numbers match what the endpoints
+report. That is a scratch script, not application code; the "no raw SQL" rule
+in "Code style" governs the app, not one-off analysis.
+
 ## Changelog
 
 `CHANGELOG.md` is the running record of what changed and what is still open. Keep it current — it ships in the same commit as the change it describes, not afterwards.
 
 - **Every change gets an entry.** Behavior, endpoints, schema, UI, build/tooling config. A change that is invisible in the changelog is a change nobody can find later.
 - **Newest first.** `Open` holds observations and todos that are not implemented yet; `Unreleased` holds finished work not yet cut into a release. Move an item from `Open` to `Unreleased` when it lands — don't delete it.
+- **`Open` sits at the top of the file and is the user's inbox.** It is written away from any Claude session, so the rules below do not apply to it: a bare one-line idea with no "why" is a valid entry. Never rewrite, tidy, reformat, or prune someone's `Open` bullets. Reading them for context is fine — and an item picked up for implementation gets moved down into `Unreleased` and written up in full there.
 - **Write down the "why", not just the "what".** The reason for a change is the part that isn't recoverable from the diff.
 - **Record the decisions an entry depends on**, including the ones still open, and name any rule in this file that the change contradicts — a spec change gets made here in the same commit, never left implied.
 - Entries are English, like the rest of the docs and the code. Only user-facing UI strings are German.
@@ -467,7 +543,7 @@ npm run dev   # defaults to port 5173, proxied to backend
 
 - Python: type hints on all function signatures. Pydantic for validation. No bare `except`. Docstrings on service functions.
 - JS/JSX: functional components only. Named exports for pages, default export for App. Destructure props.
-- SQL: never use raw SQL strings in application code — always go through SQLAlchemy ORM.
+- SQL: never use raw SQL strings in application code — always go through SQLAlchemy ORM. The single exception is the SQL console, where the statement is the user's input rather than app logic; it is fenced off in `services/sql_console.py` and runs on a read-only connection. Nothing else may follow it.
 - Money: `Decimal` only. A `float` anywhere near an amount is a bug.
 
 ## What not to do
@@ -483,4 +559,6 @@ npm run dev   # defaults to port 5173, proxied to backend
 - Don't let the importer write to `transaction_tags` or to `exclude_from_stats`.
 - Don't commit real bank exports. Fixtures are synthetic.
 - don't use pip or python -m venv directly — uv owns the environment and the lockfile
+- Don't run PowerShell — it gets stuck. Use bash, or hand the command to the user. See "Shells".
+- Don't let the SQL console write, and don't remove one of its three guards because the other two look sufficient. See "SQL console".
 - Don't land a change without a `CHANGELOG.md` entry in the same commit.

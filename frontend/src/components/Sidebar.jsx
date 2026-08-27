@@ -1,5 +1,13 @@
 import { NavLink } from 'react-router-dom';
-import { ArrowDownUp, FolderTree, LayoutDashboard, Receipt, Tags, X } from 'lucide-react';
+import {
+  ArrowDownUp,
+  FolderTree,
+  LayoutDashboard,
+  Receipt,
+  Tags,
+  Terminal,
+  X,
+} from 'lucide-react';
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Übersicht', icon: LayoutDashboard, end: true },
@@ -7,6 +15,7 @@ export const NAV_ITEMS = [
   { to: '/kategorien', label: 'Kategorien', icon: FolderTree },
   { to: '/tags', label: 'Tags', icon: Tags },
   { to: '/import-export', label: 'Import/Export', icon: ArrowDownUp },
+  { to: '/sql', label: 'SQL', icon: Terminal },
 ];
 
 function linkClasses({ isActive }) {

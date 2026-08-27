@@ -46,7 +46,13 @@ class BalanceAnchor:
 # adjusted to make a drift disappear destroys the only evidence that something
 # was wrong.
 BALANCE_ANCHORS: list[BalanceAnchor] = [
-    BalanceAnchor(date_type(2026, 8, 10), Decimal("1608.90")),
+    # The first anchor (2026-08-10, 1608.90) was withdrawn, not superseded: the
+    # figure was never a real end-of-day observation — it had expenses already
+    # netted out of it before it was written down. Keeping it would have made
+    # the drift against this anchor report a discrepancy in the imported data
+    # that does not exist. Replacing a bad *observation* is not the same as
+    # editing a good one to make a drift disappear; only the latter is barred.
+    BalanceAnchor(date_type(2026, 8, 11), Decimal("1652.09")),
 ]
 
 

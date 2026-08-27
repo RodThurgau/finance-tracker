@@ -77,11 +77,18 @@ def client(db: Session):
     """A TestClient whose requests run against the rolled-back `db` session."""
     from fastapi.testclient import TestClient
 
-    from database import get_db
+    from database import get_db, get_readonly_connection
     from main import app
 
     app.dependency_overrides[get_db] = lambda: db
+    # The SQL console reads through a separate `mode=ro` connection in
+    # production. Pointed at the test session's connection here, because a
+    # second connection to the file would not see rows this test has not
+    # committed — and the suite never commits. That the real one refuses writes
+    # is covered directly in test_sql_endpoint.py.
+    app.dependency_overrides[get_readonly_connection] = lambda: db.connection()
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_readonly_connection, None)
