@@ -83,6 +83,7 @@ def _row(transaction: Transaction) -> list[str]:
 def export_csv(
     category_id: int | None = None,
     subcategory_id: int | None = None,
+    no_subcategory: bool | None = None,
     tag_id: list[int] | None = Query(None),
     untagged: bool | None = None,
     source: SourceFilter | None = None,
@@ -101,6 +102,7 @@ def export_csv(
     filters = dict(
         category_id=category_id,
         subcategory_id=subcategory_id,
+        no_subcategory=no_subcategory,
         tag_id=tag_id,
         untagged=untagged,
         source=source,

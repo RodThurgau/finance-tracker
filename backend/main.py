@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backup import BackupError, run_backup
 from database import SessionLocal
-from routers import categories, export, imports, rules, sql, stats, tags, transactions
+from routers import categories, export, imports, merchants, rules, sql, stats, tags, transactions
 from seed import seed_database
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -64,6 +64,7 @@ app.include_router(tags.router)
 app.include_router(categories.router)
 app.include_router(rules.router)
 app.include_router(stats.router)
+app.include_router(merchants.router)
 app.include_router(export.router)
 app.include_router(sql.router)
 

@@ -26,6 +26,10 @@ class SubcategoryCreate(SubcategoryBase):
     pass
 
 
+class SubcategoryUpdate(BaseModel):
+    name: str | None = None
+
+
 class Subcategory(SubcategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -115,6 +119,7 @@ class TransactionUpdate(BaseModel):
 
 class Transaction(TransactionBase, AmountModel):
     id: int
+    display_name: str | None = None
     tags: list[Tag] = []
 
 
@@ -200,11 +205,90 @@ class MonthlySummaryEntry(BaseModel):
 
 class MerchantSpendEntry(BaseModel):
     counter_account: str
+    display_name: str
     total: Decimal
 
     @field_serializer("total")
     def serialize_total(self, value: Decimal) -> str:
         return str(value)
+
+
+class SpendBucket(BaseModel):
+    """The four figures every analytics row carries.
+
+    `net` is what the bucket actually cost or earned; `income` and `expenses`
+    are the two halves that produced it, kept separate because a category whose
+    spending is largely reimbursed reads very differently from one with no
+    income at all, and a single net figure hides which is which.
+    """
+
+    income: Decimal
+    expenses: Decimal
+    net: Decimal
+    transaction_count: int
+
+    @field_serializer("income", "expenses", "net")
+    def serialize_amounts(self, value: Decimal) -> str:
+        return str(value)
+
+
+class SubcategoryBreakdownEntry(SpendBucket):
+    """`subcategory_id`/`subcategory_name` are None for the rows of a category
+    that carry no subcategory — the bucket the UI labels "Ohne Unterkategorie"."""
+
+    subcategory_id: int | None
+    subcategory_name: str | None
+
+
+class CategoryBreakdownEntry(SpendBucket):
+    """`category_id`/`category_name` are None for the unfiled bucket ("Ohne
+    Kategorie"). `subcategories` breaks the same rows down one level further and
+    always sums back to the parent."""
+
+    category_id: int | None
+    category_name: str | None
+    color: str | None = None
+    subcategories: list[SubcategoryBreakdownEntry] = []
+
+
+class CategoryBreakdown(BaseModel):
+    entries: list[CategoryBreakdownEntry]
+    totals: SpendBucket
+
+
+class TagBreakdownEntry(SpendBucket):
+    """`tag_id`/`tag_name` are None for the untagged bucket ("Ohne Tag")."""
+
+    tag_id: int | None
+    tag_name: str | None
+    color: str | None = None
+
+
+class TagBreakdown(BaseModel):
+    """Per-tag figures.
+
+    Unlike `CategoryBreakdown`, the entries **overlap**: a transaction carrying
+    two tags is counted in full under both, so the entries do not sum to
+    `totals`. `totals` is every countable row in the range — the same figure
+    `/stats/summary` reports — and is there as a reference point, not as a sum
+    of the rows above it.
+    """
+
+    entries: list[TagBreakdownEntry]
+    totals: SpendBucket
+
+
+class TrendPoint(SpendBucket):
+    month: str
+
+
+class TrendSeries(BaseModel):
+    """One bucket's figures month by month. Months with no matching transaction
+    are omitted rather than padded with zeros — filling the gaps for a
+    continuous axis is the chart's job, same as `/stats/summary`'s `by_month`."""
+
+    points: list[TrendPoint]
+    totals: SpendBucket
 
 
 class StatsSummary(BaseModel):
@@ -389,3 +473,22 @@ class DatabaseSchema(BaseModel):
     SQLAlchemy's inspector, so it cannot drift from the migrations."""
 
     tables: list[SchemaTable]
+
+
+class MerchantMappingBase(BaseModel):
+    raw_name: str
+    display_name: str
+
+
+class MerchantMappingCreate(MerchantMappingBase):
+    pass
+
+
+class MerchantMappingUpdate(BaseModel):
+    display_name: str
+
+
+class MerchantMapping(MerchantMappingBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int

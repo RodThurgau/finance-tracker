@@ -32,7 +32,7 @@ finance-tracker/
 │   │   ├── tags.py              # Tag CRUD
 │   │   ├── imports.py           # CSV upload + upsert logic
 │   │   ├── rules.py             # Categorization rules CRUD
-│   │   ├── stats.py             # Aggregates + anchored balance
+│   │   ├── stats.py             # Aggregates, analytics breakdowns, anchored balance
 │   │   ├── sql.py               # SQL console: execute, saved queries, schema
 │   │   └── export.py            # Filtered CSV export
 │   ├── parsers/
@@ -66,6 +66,9 @@ finance-tracker/
 │   │   ├── pages/
 │   │   │   ├── Transactions.jsx
 │   │   │   ├── Overview.jsx
+│   │   │   ├── Analytics.jsx        # Auswertungen shell: sub-tabs + shared date range
+│   │   │   ├── AnalyticsCategories.jsx
+│   │   │   ├── AnalyticsTags.jsx
 │   │   │   ├── Categories.jsx
 │   │   │   ├── Tags.jsx
 │   │   │   ├── ImportExport.jsx
@@ -76,6 +79,8 @@ finance-tracker/
 │   └── vite.config.js
 ├── data/
 │   └── finance.db               # Created at first run
+├── docs/
+│   └── star_schema.md           # Star schema views for Power BI
 ├── backups/                     # Timestamped DB snapshots (gitignored)
 ├── imports/                     # Optional: drop CSVs here
 ├── CLAUDE.md
@@ -103,7 +108,7 @@ Rules:
 
 ## Database schema
 
-Seven tables. All IDs are integers with autoincrement. Schema changes go through Alembic — see "Migrations".
+Eight tables. All IDs are integers with autoincrement. Schema changes go through Alembic — see "Migrations".
 
 ### `categories`
 
@@ -177,6 +182,16 @@ Composite PK on (transaction_id, tag_id).
 
 `field` is validated by a Pydantic enum on write. A rule whose `field` is NULL on an old row is treated as `description`. If the target field is NULL on a transaction, the rule simply does not match.
 
+### `merchant_mappings`
+
+| Column       | Type    | Notes                                    |
+|--------------|---------|------------------------------------------|
+| id           | INTEGER | PK                                       |
+| raw_name     | TEXT    | Unique, not null. The `counter_account` value from the transaction |
+| display_name | TEXT    | Not null. The clean name to show in the UI |
+
+A mapping overrides the display name of a `counter_account` value. The raw value stays on the transaction row; the mapping is resolved at query time via `COALESCE(merchant_mappings.display_name, transactions.counter_account)`, so adding or changing a mapping takes effect immediately with no migration and no backfill. Without a mapping, the display name is the raw `counter_account`.
+
 ### `saved_queries`
 
 | Column     | Type     | Notes                                          |
@@ -195,6 +210,24 @@ Folders are not a table. A folder is whatever distinct `folder` values the saved
 `folder` is `""` rather than NULL for the top level because SQLite treats every NULL as distinct in a unique index — with NULL, two unfiled queries could share a name.
 
 The `sql` column is never executed by the app on its own. It is text the console hands back to the editor; running it is always an explicit `POST /sql/execute` with the same guard as anything typed by hand.
+
+## Star schema (Power BI views)
+
+Seven SQL views (migration `0004`) present the data as a star schema for Power BI or any analytics tool that connects directly to `data/finance.db`. The application does not use them; they are a read-only layer on top of the existing tables.
+
+| View                  | Role                | Key column(s)                    |
+|-----------------------|---------------------|----------------------------------|
+| `FactTransaction`     | Fact table          | `TransactionKey`, FK columns     |
+| `DimCategory`         | Dimension           | `CategoryKey`                    |
+| `DimSubcategory`      | Dimension           | `SubcategoryKey`, `CategoryKey`  |
+| `DimDate`             | Dimension (derived) | `DateKey`                        |
+| `DimVendor`           | Dimension (derived) | `VendorKey`                      |
+| `DimTag`              | Dimension           | `TagKey`                         |
+| `BridgeTransactionTag`| Bridge (many-to-many)| `TransactionKey`, `TagKey`      |
+
+All columns use **PascalCase**. `FactTransaction.Amount` is in euros (the stored integer cents ÷ 100), and `IsInternalTransfer` is a computed flag mirroring `services/internal_transfers.py`. `DimDate` is derived from `DISTINCT transactions.date` (German month/day names); `DimVendor` is derived from `DISTINCT counter_account` joined with `merchant_mappings` for the display name.
+
+Full column definitions and Power BI setup instructions are in [`docs/star_schema.md`](docs/star_schema.md).
 
 ## Migrations
 
@@ -378,6 +411,22 @@ Append anchors, never edit a past one — an anchor adjusted to make a drift dis
 
 The balance sums exactly the rows `/stats/summary` aggregates (`_countable` in `routers/stats.py`): no `exclude_from_stats` rows, no internal transfers. Dropping the funding legs is safe because a PayPal purchase and the ING debit settling it are the same money — and if that pairing ever breaks, the next anchor's drift is what surfaces it.
 
+## Auswertungen
+
+The analytics tab at `/auswertungen`: two sub-tabs — Kategorien and Tags — over one date range shared between them, because "the last quarter by category" and "the last quarter by tag" are two views of one question.
+
+It is a table, not a chart. The Übersicht already draws the pie; this is the figures behind it, and every row carries **income, expenses and net** rather than one number. A category whose spending is largely reimbursed reads nothing like one with no income at all, and a single net figure hides which is which.
+
+**`/stats/by-category` is not `/stats/summary`'s `by_category`.** The latter feeds a pie chart, which cannot mix slice signs, so it nets and then drops everything at or above zero — a fully reimbursed category disappears and unfiled income is left out. Right for a chart, wrong for a table. The breakdown keeps every row, so the entries sum to `totals` and a category that earned money is a row like any other. Both go through `_countable`, so they still count the same rows.
+
+**Three levels, expanded in place:** category → subcategory → the transactions themselves. Subcategory figures come from a second `GROUP BY` over the same filtered set rather than from summing in Python, so they cannot drift from the parent row. The `subcategory_id IS NULL` rows within a category are their own bucket ("Ohne Unterkategorie"), as are the `category_id IS NULL` rows ("Ohne Kategorie").
+
+**A row addresses itself with transaction-list filter names.** Each row builds one params object — `category_id`, `subcategory_id`, `uncategorized`, `no_subcategory`, `tag_id`, `untagged` — and hands it unchanged to `/stats/trend`, to `/transactions` for the drill-down, and to the link into the Transaktionen page. Keep it that way: one spelling means the three can never describe different rows. The drill-down adds `excluded=false`, since the transaction list keeps `exclude_from_stats` rows and every figure here drops them.
+
+**Tag rows overlap.** A transaction carrying two tags counts in full under both, so `/stats/by-tag`'s entries do not sum to its `totals` — which is every countable row in the range, a reference point rather than a sum. There is deliberately no `Gesamt` row on that table, and the page says the overlap out loud. Untagged rows are their own entry (`tag_id: null`).
+
+**`/stats/trend`** is any one of those rows month by month, filtered by the same params. Months with no matching transaction are omitted, like `/stats/summary`'s `by_month`; `fillMonthGaps` in `lib/dateRanges.js` inserts them for the chart, between the first and last month present only. The month-over-month percentage is shown without a good/bad color: that mapping depends on whether more is better, which is true for a salary and false for groceries, and the panel points at whichever row was clicked.
+
 ## SQL console
 
 A **read-only** SQL editor at `/sql`, for the questions the built-in screens don't answer. It runs statements the user typed, which makes it the one deliberate exception to "never use raw SQL strings in application code" under "Code style" — the SQL here *is* the user input, not app logic. Nothing else in the codebase may cite it as precedent.
@@ -425,6 +474,7 @@ Subcategory deletion follows the same shape: `subcategory_id = NULL` on affected
 - JSON request/response bodies
 - Filtering via query parameters: `?category_id=3&tag_id=5&date_from=2024-01-01&date_to=2024-12-31&search=rewe`
 - `tag_id` is repeatable and ORs: `?tag_id=1&tag_id=2` returns rows carrying *either* tag. A single `tag_id` behaves as it always did.
+- `no_subcategory` is the subcategory-side counterpart to `uncategorized`: `true` returns rows with no subcategory, `false` returns rows that have one, unset does not filter. It exists because no id means "no subcategory", and the Auswertungen drill-down has to be able to address exactly that bucket.
 - `untagged` is the tag-side counterpart to `uncategorized`: `true` returns rows with no tags at all, `false` returns rows carrying at least one, unset does not filter. Passing it together with `tag_id` is contradictory and correctly returns nothing.
 - `internal` (`hide` | `show` | `only`, default `hide`) is the one filter that does **not** default to neutral — internal transfers are hidden unless asked for. See "Internal transfers".
 - Pagination: `?page=1&page_size=50`
@@ -448,6 +498,8 @@ POST   /api/v1/categories               Create category
 POST   /api/v1/categories/{id}/subcategories  Create subcategory
 PATCH  /api/v1/categories/{id}          Rename / recolor
 DELETE /api/v1/categories/{id}          Delete (nullifies + clears user_categorized)
+PATCH  /api/v1/subcategories/{id}       Rename (assignments are keyed by id and survive it)
+DELETE /api/v1/subcategories/{id}       Delete (nullifies subcategory_id; see "Deleting a category")
 
 GET    /api/v1/tags                     List all
 POST   /api/v1/tags                     Create tag
@@ -462,7 +514,15 @@ POST   /api/v1/rules/apply              Re-run rules on uncategorized txns
 
 GET    /api/v1/export/csv               Export filtered data. Same `internal` default as the list
 GET    /api/v1/stats/summary            Aggregated spending data for charts
+GET    /api/v1/stats/by-category        Money per category, each with its subcategories nested
+GET    /api/v1/stats/by-tag             Money per tag, plus an untagged entry. Entries overlap
+GET    /api/v1/stats/trend              One of those rows month by month
 GET    /api/v1/stats/balance            Anchored running balance + per-anchor drift check
+
+GET    /api/v1/merchants                List all merchant name mappings
+POST   /api/v1/merchants                Create a mapping (raw_name → display_name)
+PATCH  /api/v1/merchants/{id}           Update the display name
+DELETE /api/v1/merchants/{id}           Delete a mapping (reverts to raw counter_account)
 
 POST   /api/v1/sql/execute              Run one read-only statement. 400 with the reason if refused or broken
 GET    /api/v1/sql/schema               Tables and columns of the live database, with notes on the traps
@@ -473,7 +533,7 @@ DELETE /api/v1/sql/queries/{id}         Delete a saved query
 PATCH  /api/v1/sql/folders              Rename a folder, moving every query in it. Onto an existing name = merge
 ```
 
-`/stats/summary` filters `exclude_from_stats == False` and drops internal transfers on every aggregate it computes. No exceptions, no query parameter to override either.
+`/stats/summary` filters `exclude_from_stats == False` and drops internal transfers on every aggregate it computes. No exceptions, no query parameter to override either. Its `total_income` and `total_expenses` are **per-category-net**: within each category, income offsets expenses before the two headline numbers are computed. A rent category with reimbursements contributes its net cost to expenses, not the reimbursement to income — so income is only categories that net positive (salary, savings returns) and expenses is what spending actually cost after reimbursements. The overall `net` is unchanged.
 
 ## Frontend conventions
 

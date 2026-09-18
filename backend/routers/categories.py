@@ -20,7 +20,7 @@ from models import Category, CategoryRule, Subcategory, Transaction
 from schemas import Category as CategorySchema
 from schemas import CategoryCreate, CategoryUpdate, CategoryWithCount
 from schemas import Subcategory as SubcategorySchema
-from schemas import SubcategoryCreate
+from schemas import SubcategoryCreate, SubcategoryUpdate
 
 router = APIRouter(prefix="/api/v1", tags=["categories"])
 
@@ -116,6 +116,32 @@ def create_subcategory(
 
     subcategory = Subcategory(category_id=category_id, name=data.name)
     db.add(subcategory)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Subcategory '{data.name}' already exists in this category",
+        ) from exc
+    db.refresh(subcategory)
+    return subcategory
+
+
+@router.patch("/subcategories/{subcategory_id}", response_model=SubcategorySchema)
+def update_subcategory(
+    subcategory_id: int, data: SubcategoryUpdate, db: Session = Depends(get_db)
+) -> Subcategory:
+    """Rename a subcategory. Assignments are keyed by id, so transactions and
+    rules pointing at it are unaffected — nothing else in the app looks a
+    subcategory up by name."""
+    subcategory = db.get(Subcategory, subcategory_id)
+    if subcategory is None:
+        raise HTTPException(status_code=404, detail="Subcategory not found")
+
+    if "name" in data.model_fields_set:
+        subcategory.name = data.name
+
     try:
         db.commit()
     except IntegrityError as exc:

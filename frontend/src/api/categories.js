@@ -28,6 +28,11 @@ export function createSubcategory(categoryId, body) {
   return api.post(`/categories/${categoryId}/subcategories`, body);
 }
 
+/** Rename a subcategory. Assignments are keyed by id and survive the rename. */
+export function updateSubcategory(id, body) {
+  return api.patch(`/subcategories/${id}`, body);
+}
+
 /** Delete a subcategory. Affected transactions lose `subcategory_id`; their
  *  `user_categorized` flag only clears if they have no `category_id` either. */
 export function deleteSubcategory(id) {

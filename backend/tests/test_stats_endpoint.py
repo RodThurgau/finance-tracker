@@ -44,7 +44,8 @@ def make_category(client: TestClient, name: str = "Testkategorie") -> int:
 
 
 def test_totals_and_net(client: TestClient, db: Session) -> None:
-    make_transaction(db, amount="1000.00", when=date(2026, 1, 5), composite_hash="a")
+    income_cat = make_category(client, "Gehalt")
+    make_transaction(db, amount="1000.00", when=date(2026, 1, 5), composite_hash="a", category_id=income_cat)
     make_transaction(db, amount="-40.00", when=date(2026, 1, 6), composite_hash="b")
     make_transaction(db, amount="-10.00", when=date(2026, 1, 7), composite_hash="c")
 
@@ -165,11 +166,11 @@ def test_by_category_drops_a_fully_reimbursed_category(client: TestClient, db: S
     assert client.get("/api/v1/stats/summary").json()["by_category"] == []
 
 
-def test_total_expenses_stays_gross_while_by_category_nets(
+def test_total_expenses_is_per_category_net(
     client: TestClient, db: Session
 ) -> None:
-    """The two figures answer different questions and no longer reconcile —
-    pinned so the divergence stays deliberate rather than becoming a surprise."""
+    """total_expenses nets income against expenses within each category, so a
+    partly reimbursed category contributes its net cost, not the gross expense."""
     category_id = make_category(client, "Wohnen")
     make_transaction(
         db, amount="-1200.00", when=date(2026, 1, 1), composite_hash="rent", category_id=category_id
@@ -180,7 +181,7 @@ def test_total_expenses_stays_gross_while_by_category_nets(
 
     body = client.get("/api/v1/stats/summary").json()
 
-    assert body["total_expenses"] == "-1200.00"
+    assert body["total_expenses"] == "-750.00"
     assert body["by_category"][0]["total"] == "-750.00"
 
 

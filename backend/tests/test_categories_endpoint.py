@@ -219,6 +219,94 @@ def test_create_subcategory_same_name_allowed_in_different_category(client: Test
     assert response.status_code == 201
 
 
+def test_patch_renames_subcategory(client: TestClient) -> None:
+    category_id = client.post(
+        "/api/v1/categories", json={"name": "Wohnen", "color": "#38bdf8"}
+    ).json()["id"]
+    subcategory_id = client.post(
+        f"/api/v1/categories/{category_id}/subcategories", json={"name": "Miete"}
+    ).json()["id"]
+
+    response = client.patch(f"/api/v1/subcategories/{subcategory_id}", json={"name": "Kaltmiete"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Kaltmiete"
+    assert body["category_id"] == category_id
+
+
+def test_patch_subcategory_keeps_transaction_assignments(client: TestClient, db: Session) -> None:
+    category_id = client.post(
+        "/api/v1/categories", json={"name": "Wohnen", "color": "#38bdf8"}
+    ).json()["id"]
+    subcategory_id = client.post(
+        f"/api/v1/categories/{category_id}/subcategories", json={"name": "Miete"}
+    ).json()["id"]
+    txn = make_transaction(
+        db, category_id=category_id, subcategory_id=subcategory_id, user_categorized=True
+    )
+
+    response = client.patch(f"/api/v1/subcategories/{subcategory_id}", json={"name": "Kaltmiete"})
+
+    assert response.status_code == 200
+    db.refresh(txn)
+    assert txn.subcategory_id == subcategory_id
+    assert txn.category_id == category_id
+    assert txn.user_categorized is True
+
+
+def test_patch_subcategory_missing_returns_404(client: TestClient) -> None:
+    response = client.patch("/api/v1/subcategories/999999", json={"name": "X"})
+    assert response.status_code == 404
+
+
+def test_patch_subcategory_to_existing_name_in_same_category_returns_400(
+    client: TestClient,
+) -> None:
+    category_id = client.post(
+        "/api/v1/categories", json={"name": "Wohnen", "color": "#38bdf8"}
+    ).json()["id"]
+    client.post(f"/api/v1/categories/{category_id}/subcategories", json={"name": "Miete"})
+    other_id = client.post(
+        f"/api/v1/categories/{category_id}/subcategories", json={"name": "Strom"}
+    ).json()["id"]
+
+    response = client.patch(f"/api/v1/subcategories/{other_id}", json={"name": "Miete"})
+
+    assert response.status_code == 400
+
+
+def test_patch_subcategory_to_name_used_in_another_category_is_allowed(
+    client: TestClient,
+) -> None:
+    a = client.post("/api/v1/categories", json={"name": "Wohnen", "color": "#38bdf8"}).json()["id"]
+    b = client.post("/api/v1/categories", json={"name": "Transport", "color": "#a78bfa"}).json()[
+        "id"
+    ]
+    client.post(f"/api/v1/categories/{a}/subcategories", json={"name": "Sonstiges"})
+    subcategory_id = client.post(
+        f"/api/v1/categories/{b}/subcategories", json={"name": "Bahn"}
+    ).json()["id"]
+
+    response = client.patch(f"/api/v1/subcategories/{subcategory_id}", json={"name": "Sonstiges"})
+
+    assert response.status_code == 200
+
+
+def test_patch_subcategory_with_empty_body_is_a_no_op(client: TestClient) -> None:
+    category_id = client.post(
+        "/api/v1/categories", json={"name": "Wohnen", "color": "#38bdf8"}
+    ).json()["id"]
+    subcategory_id = client.post(
+        f"/api/v1/categories/{category_id}/subcategories", json={"name": "Miete"}
+    ).json()["id"]
+
+    response = client.patch(f"/api/v1/subcategories/{subcategory_id}", json={})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Miete"
+
+
 def test_delete_subcategory_missing_returns_404(client: TestClient) -> None:
     response = client.delete("/api/v1/subcategories/999999")
     assert response.status_code == 404

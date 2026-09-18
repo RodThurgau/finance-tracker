@@ -11,10 +11,27 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
-from models import Tag, Transaction
+from models import MerchantMapping, Tag, Transaction
 from schemas import BulkUpdateResult, Transaction as TransactionSchema
 from schemas import TransactionBulkUpdate, TransactionListResponse, TransactionUpdate
 from services.internal_transfers import is_internal_transfer
+
+
+def _resolve_display_names(
+    db: Session, transactions: list[Transaction],
+) -> None:
+    """Set ``display_name`` on each ORM object from merchant_mappings."""
+    raw_names = {t.counter_account for t in transactions if t.counter_account}
+    if not raw_names:
+        return
+    mappings = dict(
+        db.execute(
+            select(MerchantMapping.raw_name, MerchantMapping.display_name)
+            .where(MerchantMapping.raw_name.in_(raw_names))
+        ).all()
+    )
+    for t in transactions:
+        t.display_name = mappings.get(t.counter_account, t.counter_account)  # type: ignore[attr-defined]
 
 router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
 
@@ -44,6 +61,7 @@ def apply_transaction_filters(
     *,
     category_id: int | None,
     subcategory_id: int | None,
+    no_subcategory: bool | None,
     tag_id: list[int] | None,
     untagged: bool | None,
     source: str | None,
@@ -64,6 +82,17 @@ def apply_transaction_filters(
         stmt = stmt.where(Transaction.category_id == category_id)
     if subcategory_id is not None:
         stmt = stmt.where(Transaction.subcategory_id == subcategory_id)
+    # The subcategory-side counterpart to `uncategorized`. Spelled out rather
+    # than folded into `subcategory_id` because there is no id that means "no
+    # subcategory", and the analytics drill-down needs to address exactly that
+    # bucket: the rows filed under a category but under none of its
+    # subcategories. Not called "unsubcategorized" for obvious reasons.
+    if no_subcategory is not None:
+        stmt = stmt.where(
+            Transaction.subcategory_id.is_(None)
+            if no_subcategory
+            else Transaction.subcategory_id.is_not(None)
+        )
     # Repeatable parameter, OR semantics: ?tag_id=1&tag_id=2 matches rows
     # carrying either tag. A single ?tag_id=1 behaves exactly as before.
     if tag_id:
@@ -100,6 +129,7 @@ def apply_transaction_filters(
 def list_transactions(
     category_id: int | None = None,
     subcategory_id: int | None = None,
+    no_subcategory: bool | None = None,
     tag_id: list[int] | None = Query(None),
     untagged: bool | None = None,
     source: SourceFilter | None = None,
@@ -120,6 +150,7 @@ def list_transactions(
     filters = dict(
         category_id=category_id,
         subcategory_id=subcategory_id,
+        no_subcategory=no_subcategory,
         tag_id=tag_id,
         untagged=untagged,
         source=source,
@@ -150,6 +181,7 @@ def list_transactions(
     )
 
     items = list(db.scalars(stmt))
+    _resolve_display_names(db, items)
     return TransactionListResponse(items=items, total=total)
 
 
@@ -203,4 +235,5 @@ def update_transaction(
 
     db.commit()
     db.refresh(transaction)
+    _resolve_display_names(db, [transaction])
     return transaction

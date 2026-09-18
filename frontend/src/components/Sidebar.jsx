@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   ArrowDownUp,
+  ChartColumnBig,
   FolderTree,
   LayoutDashboard,
   Receipt,
@@ -12,6 +13,7 @@ import {
 export const NAV_ITEMS = [
   { to: '/', label: 'Übersicht', icon: LayoutDashboard, end: true },
   { to: '/transaktionen', label: 'Transaktionen', icon: Receipt },
+  { to: '/auswertungen', label: 'Auswertungen', icon: ChartColumnBig },
   { to: '/kategorien', label: 'Kategorien', icon: FolderTree },
   { to: '/tags', label: 'Tags', icon: Tags },
   { to: '/import-export', label: 'Import/Export', icon: ArrowDownUp },

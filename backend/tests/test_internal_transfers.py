@@ -128,18 +128,17 @@ def test_stats_excludes_internal_transfers(client: TestClient, fixtures_dir: Pat
     """The PayPal funding credits are all positive, so counting them would
     inflate income by exactly their sum: 7,25 + 42,00 + 31,50 = 80,75.
 
-    The 5,50 that remains is `Rückbuchung allgemeiner Einbehaltung`, the
-    reversal of an authorization hold. It nets to zero against its own
-    `Einbehaltung für offene Autorisierung` counterpart but is *not* one of the
-    funding legs this feature filters — it is the known out-of-scope case
-    recorded under "Open" in CHANGELOG.md. Pinning the number here means
-    widening the definition later has to come past this test.
+    With per-category netting, `total_income` is the sum of category nets that
+    are positive. All uncategorized transactions land in one bucket whose net is
+    negative (the 5,50 authorization-hold reversal is absorbed), so income is
+    zero. The point of the test is that the 80,75 from funding legs is not
+    counted — income being 0 rather than 80,75 proves it.
     """
     upload(client, fixtures_dir / "paypal_demo.CSV")
 
     summary = client.get("/api/v1/stats/summary").json()
 
-    assert Decimal(summary["total_income"]) == Decimal("5.50")
+    assert Decimal(summary["total_income"]) == Decimal("0.00")
 
 
 def test_stats_excludes_ing_paypal_funding_debit(

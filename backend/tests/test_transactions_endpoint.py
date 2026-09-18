@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from models import Category, Tag, Transaction, TransactionTag
+from models import Category, Subcategory, Tag, Transaction, TransactionTag
 
 # Every fixture row, including the PayPal funding legs.
 ALL_ROWS = {"internal": "show"}
@@ -160,6 +160,37 @@ def test_list_uncategorized_filter(client: TestClient, db: Session, fixtures_dir
     assert uncategorized["total"] == 15
     assert categorized["total"] == 1
     assert categorized["items"][0]["id"] == txn.id
+
+
+def test_list_no_subcategory_filter(client: TestClient, db: Session, fixtures_dir: Path) -> None:
+    """The bucket the analytics drill-down addresses: filed under a category,
+    under none of its subcategories."""
+    import_both(client, fixtures_dir)
+    category = make_category(db)
+    subcategory = Subcategory(category_id=category.id, name="Testunterkategorie")
+    db.add(subcategory)
+    db.flush()
+    txn = db.scalars(select(Transaction)).first()
+    txn.category_id = category.id
+    txn.subcategory_id = subcategory.id
+    db.flush()
+
+    without = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "no_subcategory": True}
+    ).json()
+    with_one = client.get(
+        "/api/v1/transactions", params={**ALL_ROWS, "no_subcategory": False}
+    ).json()
+    in_category = client.get(
+        "/api/v1/transactions",
+        params={**ALL_ROWS, "category_id": category.id, "no_subcategory": True},
+    ).json()
+
+    assert without["total"] == 15
+    assert with_one["total"] == 1
+    assert with_one["items"][0]["id"] == txn.id
+    # The one categorized row does have a subcategory, so the combination is empty.
+    assert in_category["total"] == 0
 
 
 def test_list_excluded_filter_defaults_to_showing_all(

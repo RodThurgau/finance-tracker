@@ -51,6 +51,14 @@ export function TransactionRow({
         )}
       </td>
 
+      <td className={`${CELL} max-w-[12rem]`}>
+        {transaction.display_name && (
+          <div className="truncate" title={transaction.display_name}>
+            {transaction.display_name}
+          </div>
+        )}
+      </td>
+
       <td className={CELL}>
         <Popover
           renderTrigger={({ toggle }) => (

@@ -111,6 +111,14 @@ class SavedQuery(Base):
     )
 
 
+class MerchantMapping(Base):
+    __tablename__ = "merchant_mappings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    raw_name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class CategoryRule(Base):
     __tablename__ = "category_rules"
 

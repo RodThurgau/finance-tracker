@@ -15,20 +15,171 @@ the timing matters.
 When an item lands, move it into `Unreleased` and write it up properly there —
 move, don't delete, so the trail from idea to change stays intact.
 
-- I want to Store the Händler info but want the ability of a calculated name Field, which is the same as the regular Unless I add mappings to this
-- Allow for renaming of subcategories
-- Add analytics top page
-- Add page to analytics tab overview page of money by cataegory, not graphics. add an expand option where its then money by subcategoryand on further expansion the drill down. There should be a page filter for time range
-  - this should additionaly allow for a specific category or subcategory to be viewed on a monthly basis with a trend
-- Add Page to analytics tab where one can analyze money per tags. Also add time range filter
-- SOme expenses such as rent are offset by income in rent. In the overview subtract this overlap from income and expenses
-  - basically it should only be my salary which is income and maybe sparen. this is a logical crux nothing that is harcoded. Basically offset income and expenses in the same category
-
+- I want the Merchant field to also be controlled by rules which I can set. And i want to be able to have this field map to certain Categories as well. So i want to be able to have the mapping of paypal@ikea to IKEA -> wohnen. So setting Vendor to ikea also sets to wohnen if that one has not been manually overridden beforehand
+These rules should be editable as well 
 ---
 
 ## Unreleased
 
 ### Added
+
+- **Star schema views for Power BI** — seven SQL views (migration `0004`) that
+  present the data as a classic star schema: `FactTransaction` at the center,
+  `DimCategory`, `DimSubcategory`, `DimDate`, `DimVendor`, `DimTag` around it,
+  and `BridgeTransactionTag` for the many-to-many tag relationship. PascalCase
+  column names throughout. From `Open`: "Add a relational View SQL Model in the
+  db. I want this as a Star Schema with DimSubcategory, DimCategory, DimDate,
+  DimVendor, DimTag. I want to use this model in Power Bi."
+
+  These are read-only views over the existing tables — the application does not
+  use them. They exist so Power BI (or any ODBC tool) can connect to
+  `data/finance.db` and find a clean relational model. `FactTransaction.Amount`
+  is in euros (the stored integer cents ÷ 100), and `IsInternalTransfer` is a
+  computed flag mirroring `services/internal_transfers.py` so Power BI can
+  filter them the same way the app does. `DimDate` uses German month/day names.
+  `DimVendor` resolves display names through `merchant_mappings`.
+
+  Model documentation with a diagram and Power BI setup instructions is in
+  `docs/star_schema.md`. CLAUDE.md carries a summary table and a pointer to the
+  full doc.
+
+- **Merchant name mappings** — a `merchant_mappings` table that overrides the
+  display name for a `counter_account` value. The raw name stays on the
+  transaction row; the mapping is resolved at query time via COALESCE, so
+  adding or changing one takes effect immediately with no backfill. The Top 10
+  Händler chart on the Übersicht shows the mapped name, and each merchant has a
+  pencil button to set a display name inline. From `Open`: "I want to Store
+  the Händler info but want the ability of a calculated name Field, which is
+  the same as the regular Unless I add mappings to this."
+
+  New table `merchant_mappings` (migration `0003`), new endpoints under
+  `/api/v1/merchants/`, new `display_name` field on the `MerchantSpendEntry`
+  schema.
+
+- **Per-category-net income and expenses on the Übersicht** — the Einnahmen and
+  Ausgaben cards now net income against expenses within each category before
+  computing the headline totals. Rent that is partly reimbursed subtracts the
+  reimbursement from expenses rather than adding it to income, so income shows
+  only categories that net positive (salary, savings returns) and expenses
+  shows actual cost after reimbursements. The overall Saldo is unchanged — it
+  is mathematically the same sum either way. From `Open`: "SOme expenses such
+  as rent are offset by income in rent. In the overview subtract this overlap
+  from income and expenses … Basically offset income and expenses in the same
+  category."
+
+  The computation uses a subquery that groups by `category_id`, sums each
+  category's transactions, then splits the positive-net and negative-net
+  buckets into the two headline figures. No schema change; no new endpoint —
+  only the SQL behind `total_income`/`total_expenses` in `/stats/summary`
+  changed.
+
+- **Auswertungen tab** (`/auswertungen`) — a top-level tab with two sub-tabs,
+  Kategorien and Tags, both over one shared date range. From `Open`: "Add
+  analytics top page / Tab with subtabs outlined in the next points", "Add page
+  to analytics tab overview page of money by cataegory, not graphics … expand
+  option … further expansion the drill down … page filter for time range … a
+  specific category or subcategory … on a monthly basis with a trend", and "Add
+  Page to analytics tab where one can analyze money per tags. Also add time
+  range filter".
+
+  New endpoints: `GET /stats/by-category`, `GET /stats/by-tag`,
+  `GET /stats/trend`. All three go through `_countable`, so they count exactly
+  the rows the Übersicht and the anchored balance do — an analytics page
+  reporting a different ledger than the rest of the app would be worse than no
+  page.
+
+  *Figures, not charts.* The Übersicht already draws the pie; the ask here was
+  the table behind it. Every row carries income, expenses **and** net rather
+  than one figure: `/stats/summary`'s `by_category` is shaped for a pie chart,
+  which cannot mix slice signs, so it nets income against spending and then
+  drops anything at or above zero — a fully reimbursed category vanishes and
+  unfiled income is left out entirely. That is right for a chart and wrong for
+  a table, so this one keeps every row and splits the two halves out. A
+  category whose spending is largely paid back reads nothing like one with no
+  income at all, and a single net figure hides which is which.
+
+  *Three levels, one table.* Category → subcategory → the transactions
+  themselves, each expanded in place rather than by replacing the page: the
+  point of drilling down is comparing a part against the whole it came from,
+  and a drill-down that navigates away takes that away. The subcategory rows
+  sum exactly to their parent (they come from a second `GROUP BY` over the same
+  filtered set, not from summing in Python), and the category rows sum to the
+  `Gesamt` row.
+
+  *A row addresses itself with transaction-list filter names.* Each row builds
+  one `params` object — `category_id`, `subcategory_id`, `uncategorized`,
+  `no_subcategory`, `tag_id`, `untagged` — and hands the same object to
+  `/stats/trend`, to `/transactions` for the drill-down, and to the link into
+  the Transaktionen page. One spelling for all three, so "this row's history",
+  "this row's transactions" and "open this row over there" cannot end up
+  describing different rows.
+
+  *Tag rows overlap, and say so.* A transaction carrying two tags counts in
+  full under both, so unlike the category table the rows do not add up to the
+  range's totals. `totals` on `/stats/by-tag` is every countable row — a
+  reference point, not a sum of the entries — the tag table has no `Gesamt`
+  row, and the page states the overlap above the table. A table of figures that
+  does not add up has to say why on its face. The untagged rows ride along as
+  their own entry (`tag_id: null`), since otherwise the part of the ledger tags
+  say nothing about would be invisible on the page.
+
+  *The monthly trend is colorless on purpose.* Every other trend arrow in the
+  app is green or red, but that mapping assumes you know whether more is
+  better — true for a salary, false for groceries — and this panel points at
+  whichever row was clicked. It states direction and percent and leaves the
+  reading to whoever picked the row. The percent compares magnitudes, since for
+  a spending row both months are negative and "moved toward zero" is not what
+  anyone means by a smaller month.
+
+  Supporting changes:
+
+  - `GET /transactions` and `GET /export/csv` gained `no_subcategory`
+    (`true` = rows with no subcategory, `false` = rows with one, unset = no
+    filter) — the subcategory-side counterpart to `uncategorized`. Without it
+    the "Ohne Unterkategorie" bucket was the one row in the table whose
+    transactions could not be listed: there is no id that means "no
+    subcategory".
+  - The Transaktionen page now reads `subcategory_id` and `no_subcategory` off
+    the URL. Both were being silently dropped, which would have made the
+    drill-down links land on an unfiltered list.
+  - The drill-down and its links pass `excluded=false`. The transaction list
+    keeps `exclude_from_stats` rows (the flag only hides them from aggregates)
+    while every figure on this page drops them, so without it a row's
+    transactions would not be the transactions its total was computed from.
+  - `fillMonthGaps` in `lib/dateRanges.js` inserts the empty months the backend
+    omits, between the first and last month present only. A chart that draws
+    January next to March hides the stretch where nothing happened, which is
+    exactly what a trend is for; padding out to the edges of the range would
+    invent months instead.
+
+- **Renaming a subcategory** — `PATCH /api/v1/subcategories/{id}`, wired to a
+  pencil button next to each subcategory in the Kategorien list, matching the
+  inline rename a category already had. From `Open`: "Allow for renaming of
+  subcategories".
+
+  A subcategory was the one named thing in the app that could only be deleted
+  and recreated. That is not a rename: the new row gets a new id, so every
+  transaction and every rule pointing at the old one is nulled out by the
+  delete (and a transaction that had no `category_id` left also loses
+  `user_categorized`, per "Deleting a category"). Re-typing the name was
+  therefore a destructive operation for a cosmetic change.
+
+  Renaming touches nothing else on purpose. Assignments are keyed by id, and
+  CLAUDE.md's seed-data rule already forbids looking a category or subcategory
+  up by name anywhere in the codebase, so there is no lookup that a rename can
+  break — no migration, no backfill, no cascade. The uniqueness rule is
+  unchanged: names are unique *within* a category, so renaming onto a sibling's
+  name is a 400 while reusing a name that exists under a different category is
+  fine.
+
+  The endpoint takes `name` only. Re-filing a subcategory under a different
+  category would move every transaction carrying it across a category boundary
+  without touching `category_id` on those rows, which is a different feature
+  with its own consistency question, and it was not asked for.
+
+  Frontend: the rename invalidates `['categories']` and also `['rules']` —
+  `/rules` serves `subcategory_name` next to the id, so the rules list would
+  otherwise keep showing the old name until a reload.
 
 - **SQL page** (`/sql`) — a read-only SQL editor over the local database, with
   the result set in a plain table, saved queries in named folders, and several

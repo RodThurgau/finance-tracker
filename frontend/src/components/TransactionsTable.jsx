@@ -41,7 +41,7 @@ export function TransactionsTable({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-line">
-      <table className="w-full min-w-[62rem] text-sm">
+      <table className="w-full min-w-[72rem] text-sm">
         <thead className="bg-surface-raised">
           <tr>
             <th scope="col" className={HEAD}>
@@ -67,6 +67,9 @@ export function TransactionsTable({
               sortDir={sortDir}
               onSort={onSort}
             />
+            <th scope="col" className={HEAD}>
+              Händler
+            </th>
             <th scope="col" className={HEAD}>
               Kategorie
             </th>

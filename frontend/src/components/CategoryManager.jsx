@@ -8,6 +8,7 @@ import {
   deleteCategory,
   deleteSubcategory,
   updateCategory,
+  updateSubcategory,
 } from '../api/categories.js';
 import { useCategories } from '../hooks/useLookups.js';
 import { formatCount } from '../lib/format.js';
@@ -37,6 +38,8 @@ export function CategoryManager() {
   const [editDraft, setEditDraft] = useState({ name: '', color: DEFAULT_COLOR });
   const [subcategoryFor, setSubcategoryFor] = useState(null);
   const [subcategoryName, setSubcategoryName] = useState('');
+  const [editingSubId, setEditingSubId] = useState(null);
+  const [editSubName, setEditSubName] = useState('');
   const [confirming, setConfirming] = useState(null);
 
   // Category changes move the pills and dropdowns on the transaction list, and
@@ -85,6 +88,17 @@ export function CategoryManager() {
     },
   });
 
+  const updateSubMutation = useMutation({
+    mutationFn: (id) => updateSubcategory(id, { name: editSubName.trim() }),
+    onSuccess: () => {
+      invalidate();
+      // /rules serves the subcategory name alongside the id, so the rules list
+      // would keep showing the old one.
+      queryClient.invalidateQueries({ queryKey: ['rules'] });
+      setEditingSubId(null);
+    },
+  });
+
   const deleteSubMutation = useMutation({
     mutationFn: (id) => deleteSubcategory(id),
     onSuccess: () => {
@@ -97,6 +111,15 @@ export function CategoryManager() {
     setEditingId(category.id);
     setEditDraft({ name: category.name, color: category.color ?? DEFAULT_COLOR });
     setSubcategoryFor(null);
+    setEditingSubId(null);
+  }
+
+  function startEditSubcategory(subcategory) {
+    setEditingSubId(subcategory.id);
+    setEditSubName(subcategory.name);
+    setEditingId(null);
+    setSubcategoryFor(null);
+    updateSubMutation.reset();
   }
 
   if (isPending) return <p className="text-sm text-content-muted">Wird geladen …</p>;
@@ -231,6 +254,7 @@ export function CategoryManager() {
                         setSubcategoryFor(category.id);
                         setSubcategoryName('');
                         setEditingId(null);
+                        setEditingSubId(null);
                       }}
                       title="Unterkategorie hinzufügen"
                       aria-label={`Unterkategorie zu ${category.name} hinzufügen`}
@@ -265,18 +289,72 @@ export function CategoryManager() {
                   {category.subcategories.map((subcategory) => (
                     <li
                       key={subcategory.id}
-                      className="flex items-center gap-2 text-sm text-content-muted"
+                      className="flex flex-wrap items-center gap-2 text-sm text-content-muted"
                     >
-                      <span className="flex-1 truncate">{subcategory.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setConfirming({ type: 'subcategory', subcategory, category })}
-                        title="Unterkategorie löschen"
-                        aria-label={`${subcategory.name} löschen`}
-                        className={`${ICON_BUTTON} hover:text-negative`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {editingSubId === subcategory.id ? (
+                        <form
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            if (editSubName.trim()) updateSubMutation.mutate(subcategory.id);
+                          }}
+                          className="flex w-full flex-wrap items-center gap-2"
+                        >
+                          <input
+                            value={editSubName}
+                            onChange={(event) => setEditSubName(event.target.value)}
+                            aria-label="Name der Unterkategorie"
+                            autoFocus
+                            className={`${FIELD} flex-1`}
+                          />
+                          <button
+                            type="submit"
+                            disabled={!editSubName.trim() || updateSubMutation.isPending}
+                            title="Speichern"
+                            aria-label="Unterkategorie speichern"
+                            className={ICON_BUTTON}
+                          >
+                            <Check size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubId(null)}
+                            title="Abbrechen"
+                            aria-label="Abbrechen"
+                            className={ICON_BUTTON}
+                          >
+                            <X size={16} />
+                          </button>
+                          {updateSubMutation.isError && (
+                            <p className="w-full text-sm text-negative">
+                              {updateSubMutation.error.message}
+                            </p>
+                          )}
+                        </form>
+                      ) : (
+                        <>
+                          <span className="flex-1 truncate">{subcategory.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => startEditSubcategory(subcategory)}
+                            title="Umbenennen"
+                            aria-label={`${subcategory.name} umbenennen`}
+                            className={ICON_BUTTON}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setConfirming({ type: 'subcategory', subcategory, category })
+                            }
+                            title="Unterkategorie löschen"
+                            aria-label={`${subcategory.name} löschen`}
+                            className={`${ICON_BUTTON} hover:text-negative`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>
